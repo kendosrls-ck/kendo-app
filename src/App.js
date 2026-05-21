@@ -183,7 +183,7 @@ export default function App() {
 }
 
 /* ─── LOGIN ─── */
-function LoginScreen({function LoginScreen({onLogin,onReg}) {
+function LoginScreen({onLogin,onReg}) {
   const [isAdmin,setIsAdmin]=useState(false);
   const [email,setEmail]=useState("");
   const [password,setPassword]=useState("");
