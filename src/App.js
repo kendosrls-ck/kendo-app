@@ -1,4 +1,8 @@
 import { useState, useRef, useEffect } from "react";
+import { createClient } from "@supabase/supabase-js";
+const SUPABASE_URL = "https://tqckdjglvffeitltgpuk.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRxY2tkamdsdmZmZWl0bHRncHVrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkzMzg5NjAsImV4cCI6MjA5NDkxNDk2MH0.NdG4SejA0jJR5hUZfG3ZS5OHA4nAazoPkGT3xMFehpU;
+const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 /* ─── PALETTE ─── */
 const K = {
@@ -180,7 +184,49 @@ export default function App() {
 }
 
 /* ─── LOGIN ─── */
-function LoginScreen({onLogin,onReg}) {
+function LoginScreen({function LoginScreen({onLogin,onReg}) {
+  const [isAdmin,setIsAdmin]=useState(false);
+  const [email,setEmail]=useState("");
+  const [password,setPassword]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+
+  const handleLogin = async () => {
+    if(!email||!password){setError("Inserisci email e password");return;}
+    setLoading(true);setError("");
+    try {
+      const {data,error:err} = await supabase.auth.signInWithPassword({email,password});
+      if(err){setError("Email o password non corretti");setLoading(false);return;}
+      const {data:profile} = await supabase.from("profiles").select("is_admin,piano").eq("id",data.user.id).single();
+      onLogin(isAdmin&&profile?.is_admin?"admin":"user", profile?.piano||"basic");
+    } catch(e){setError("Errore di connessione");}
+    setLoading(false);
+  };
+
+  return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",background:K.black,fontFamily:"var(--font-sans)"}}>
+      <div style={{textAlign:"center",marginBottom:40}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={72}/></div>
+        <div style={{fontSize:12,color:K.muted,letterSpacing:2}}>FITNESS & WELLNESS</div>
+      </div>
+      {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
+      <div style={C({marginBottom:12})}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>EMAIL</label>
+        <input value={email} onChange={e=>setEmail(e.target.value)} placeholder="la-tua@email.it" style={{marginBottom:14}}/>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>PASSWORD</label>
+        <input type="password" value={password} onChange={e=>setPassword(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleLogin()} placeholder="••••••••" style={{marginBottom:20}}/>
+        <button onClick={handleLogin} disabled={loading} style={{...B("gold"),width:"100%",padding:13,fontSize:14,opacity:loading?0.7:1}}>
+          {loading?"ACCESSO IN CORSO...":"ACCEDI"}
+        </button>
+      </div>
+      <div style={{display:"flex",gap:8,marginBottom:16}}>
+        <button onClick={()=>setIsAdmin(false)} style={{...B(isAdmin?"ghost":"outline"),flex:1,fontSize:12}}>Utente</button>
+        <button onClick={()=>setIsAdmin(true)} style={{flex:1,background:isAdmin?"#0e0e1e":"transparent",color:isAdmin?"#9B8FFF":K.muted,border:`1px solid ${isAdmin?"#534AB7":K.border}`,borderRadius:8,padding:10,fontSize:12,cursor:"pointer"}}>Admin</button>
+      </div>
+      <div style={{textAlign:"center",fontSize:12,color:K.muted}}>Non hai un account? <button onClick={onReg} style={{background:"none",border:"none",color:K.gold,fontSize:12,cursor:"pointer"}}>Registrati</button></div>
+    </div>
+  );
+}}) {
   const [isAdmin,setIsAdmin]=useState(false);
   return (
     <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",background:K.black,fontFamily:"var(--font-sans)"}}>
