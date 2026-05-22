@@ -750,10 +750,11 @@ function ChatAI({piano, isAdmin, userId}) {
     setMsgs(p=>[...p,{role:"user",text:txt}]);
     try{
       const hist=msgs.map(m=>({role:m.role==="assistant"?"assistant":"user",content:m.text}));
-      const res=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,system:sys,messages:[...hist,{role:"user",content:txt}]})});
+      const res=await fetch("/api/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({system:sys,messages:[...hist,{role:"user",content:txt}]})});
       const data=await res.json();
-      setMsgs(p=>[...p,{role:"assistant",text:data.content?.map(b=>b.text||"").join("")||"Errore."}]);
-    }catch{setMsgs(p=>[...p,{role:"assistant",text:"Errore di connessione."}]);}
+      if(data.error){setMsgs(p=>[...p,{role:"assistant",text:"Errore: "+data.error}]);}
+      else{setMsgs(p=>[...p,{role:"assistant",text:data.content?.map(b=>b.text||"").join("")||"Nessuna risposta."}]);}
+    }catch{setMsgs(p=>[...p,{role:"assistant",text:"Errore di connessione al server."}]);}
     setLoad(false);
   };
 
@@ -873,6 +874,36 @@ function Dashboard() {
   );
 }
 
+/* ─── FORM CLIENTE (standalone per evitare re-render) ─── */
+function FormCliente({titolo,f,setF,onSalva,onAnnulla}) {
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  return (
+    <div>
+      <button onClick={onAnnulla} style={B("ghost",{marginBottom:20,fontSize:12})}>← Indietro</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:16}}>{titolo}</div>
+      {[["Nome","nome","text"],["Cognome","cognome","text"],["Data di nascita","data_nascita","date"],["Luogo di nascita","luogo_nascita","text"],["Indirizzo","indirizzo","text"],["Telefono","telefono","tel"],["Email","email","email"]].map(([l,k,t])=>(
+        <div key={k} style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
+          <input type={t} value={f[k]||""} onChange={e=>u(k,e.target.value)} placeholder={l}/>
+        </div>
+      ))}
+      <div style={{marginBottom:12}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>PACCHETTO</label>
+        <select value={f.pacchetto||"EMS"} onChange={e=>u("pacchetto",e.target.value)}>{PACK.map(p=><option key={p}>{p}</option>)}</select>
+      </div>
+      <div style={{marginBottom:16}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>PIANO</label>
+        <select value={f.piano||"basic"} onChange={e=>u("piano",e.target.value)}>{PIANI.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
+      </div>
+      <div style={{marginBottom:16}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>NOTE</label>
+        <textarea value={f.note||""} onChange={e=>u("note",e.target.value)} rows={2} placeholder="Note..."/>
+      </div>
+      <button onClick={onSalva} style={{...B("gold"),width:"100%",padding:13,fontSize:14}}>{titolo.includes("Modifica")?"Salva modifiche":"Aggiungi cliente"}</button>
+    </div>
+  );
+}
+
 /* ─── CLIENTI ADMIN ─── */
 function Clienti() {
   const [clienti,setClienti]=useState([]);
@@ -911,37 +942,18 @@ function Clienti() {
     await supabase.from("profiles").update({sedute_usate:newUsate}).eq("id",id);
     setClienti(p=>p.map(x=>x.id===id?{...x,sedute_usate:newUsate}:x));
   };
-
-  const FormCliente=({titolo,onSalva,onAnnulla})=>(
-    <div>
-      <button onClick={onAnnulla} style={B("ghost",{marginBottom:20,fontSize:12})}>← Indietro</button>
-      <div style={{fontWeight:600,fontSize:16,marginBottom:16}}>{titolo}</div>
-      {[["Nome","nome","text"],["Cognome","cognome","text"],["Data di nascita","data_nascita","date"],["Luogo di nascita","luogo_nascita","text"],["Indirizzo","indirizzo","text"],["Telefono","telefono","tel"],["Email","email","email"]].map(([l,k,t])=>(
-        <div key={k} style={{marginBottom:12}}>
-          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
-          <input type={t} value={f[k]||""} onChange={e=>u(k,e.target.value)} placeholder={l}/>
-        </div>
-      ))}
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>PACCHETTO</label>
-        <select value={f.pacchetto||"EMS"} onChange={e=>u("pacchetto",e.target.value)}>{PACK.map(p=><option key={p}>{p}</option>)}</select>
-      </div>
-      <div style={{marginBottom:16}}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>PIANO</label>
-        <select value={f.piano||"basic"} onChange={e=>u("piano",e.target.value)}>{PIANI.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}</select>
-      </div>
-      <div style={{marginBottom:16}}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>NOTE</label>
-        <textarea value={f.note||""} onChange={e=>u("note",e.target.value)} rows={2} placeholder="Note..."/>
-      </div>
-      <button onClick={onSalva} style={{...B("gold"),width:"100%",padding:13,fontSize:14}}>{titolo.includes("Modifica")?"Salva modifiche":"Aggiungi cliente"}</button>
-    </div>
-  );
+  const togliSeduta=async(id)=>{
+    const c=clienti.find(x=>x.id===id);
+    if(!c||c.sedute_usate<=0)return;
+    const newUsate=c.sedute_usate-1;
+    await supabase.from("profiles").update({sedute_usate:newUsate}).eq("id",id);
+    setClienti(p=>p.map(x=>x.id===id?{...x,sedute_usate:newUsate}:x));
+  };
 
   if(loading)return <Spinner/>;
-  if(showAdd)return <FormCliente titolo="Nuovo cliente" onSalva={aggiungi} onAnnulla={()=>setShowAdd(false)}/>;
+  if(showAdd)return <FormCliente titolo="Nuovo cliente" f={f} setF={setF} onSalva={aggiungi} onAnnulla={()=>setShowAdd(false)}/>;
   if(editMode&&sel){
-    return <FormCliente titolo="Modifica anagrafica" onSalva={salvaModifica} onAnnulla={()=>setEditMode(false)}/>;
+    return <FormCliente titolo="Modifica anagrafica" f={f} setF={setF} onSalva={salvaModifica} onAnnulla={()=>setEditMode(false)}/>;
   }
 
   if(sel){
@@ -982,7 +994,8 @@ function Clienti() {
           </div>
           {c.cancellazioni>=3&&<div style={{fontSize:12,color:K.danger,marginBottom:8}}>⚡ {c.cancellazioni} cancellazioni — seduta scalata automaticamente</div>}
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta</button>
+            <button onClick={()=>togliSeduta(c.id)} disabled={c.sedute_usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
+            <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({c.sedute_usate}/{c.sedute_total})</button>
             {c.telefono&&<a href={`https://wa.me/39${c.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>WhatsApp</a>}
           </div>
         </div>
