@@ -211,7 +211,8 @@ function LoginScreen({onLogin, onReg, onAdminReg}) {
     try {
       const {data,error:err} = await supabase.auth.signInWithPassword({email,password});
       if(err){setError("Email o password non corretti");setLoading(false);return;}
-      const {data:prof} = await supabase.from("profiles").select("*").eq("id",data.user.id).single();
+      const {data:prof,error:profErr} = await supabase.from("profiles").select("*").eq("id",data.user.id).maybeSingle();
+      if(profErr||!prof){setError("Profilo non trovato. Riprova.");setLoading(false);return;}
       onLogin("user", prof, data.user);
     } catch(e){setError("Errore di connessione.");}
     setLoading(false);
@@ -231,10 +232,11 @@ function LoginScreen({onLogin, onReg, onAdminReg}) {
     try {
       const {data,error:err} = await supabase.auth.signInWithPassword({email:adminEmail,password:adminPass});
       if(err){setPinError("Credenziali admin non valide");setLoading(false);return;}
-      const {data:prof} = await supabase.from("profiles").select("*").eq("id",data.user.id).single();
-      if(!prof?.is_admin){setPinError("Questo account non è admin");await supabase.auth.signOut();setLoading(false);return;}
+      const {data:prof,error:profErr} = await supabase.from("profiles").select("*").eq("id",data.user.id).maybeSingle();
+      if(profErr||!prof){setPinError("Profilo non trovato. Errore: "+(profErr?.message||"nessun profilo"));await supabase.auth.signOut();setLoading(false);return;}
+      if(!prof.is_admin){setPinError("Questo account non è admin");await supabase.auth.signOut();setLoading(false);return;}
       onLogin("admin", prof, data.user);
-    } catch(e){setPinError("Errore di connessione.");}
+    } catch(e){setPinError("Errore di connessione: "+e.message);}
     setLoading(false);
   };
 
