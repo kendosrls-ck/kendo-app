@@ -159,7 +159,7 @@ export default function App() {
         <div style={{flex:1,overflowY:"auto",padding:"14px 14px 80px"}}>
           {role==="admin"?(
             <>
-              {tab==="home"    && <Dashboard/>}
+              {tab==="home"    && <Dashboard setTab={setTab}/>}
               {tab==="clienti" && <Clienti/>}
               {tab==="agenda"  && <Agenda/>}
               {tab==="followup"&& <FollowUp/>}
@@ -791,11 +791,12 @@ function ChatAI({piano, isAdmin, userId}) {
 }
 
 /* ─── DASHBOARD ADMIN ─── */
-function Dashboard() {
+function Dashboard({setTab}) {
   const [clienti,setClienti]=useState([]);
   const [followups,setFollowups]=useState([]);
   const [pren,setPren]=useState([]);
   const [loading,setLoading]=useState(true);
+  const [panel,setPanel]=useState(null);
   const oggi=new Date().toISOString().split("T")[0];
 
   useEffect(()=>{
@@ -810,7 +811,7 @@ function Dashboard() {
 
   if(loading)return <Spinner/>;
 
-  const attivi=clienti.filter(c=>c.sedute_usate<c.sedute_total).length;
+  const attivi=clienti.filter(c=>c.sedute_usate<c.sedute_total);
   const quasi5=clienti.filter(c=>c.sedute_total-c.sedute_usate<=5);
   const quasi3=clienti.filter(c=>c.sedute_total-c.sedute_usate<=3);
   const canc3=clienti.filter(c=>c.cancellazioni>=3);
@@ -818,52 +819,169 @@ function Dashboard() {
   const msgBia=(c)=>`https://wa.me/39${c.telefono}?text=${encodeURIComponent(`Ciao ${c.nome}! 👋 Ti ricordiamo che hai ancora sessioni disponibili. Ti invitiamo a fissare un appuntamento BIA per monitorare i tuoi progressi. — Team Kendo`)}`;
   const msgRinnovo=(c)=>`https://wa.me/39${c.telefono}?text=${encodeURIComponent(`Ciao ${c.nome}! 🏆 Ti mancano solo ${c.sedute_total-c.sedute_usate} sedute. Puoi rinnovare il pacchetto con uno sconto riservato a te! — Team Kendo`)}`;
 
+  const getNome=(uid)=>{const c=clienti.find(x=>x.id===uid);return c?`${c.nome} ${c.cognome}`:"Cliente";};
+
+  /* ─── PANNELLI DETTAGLIO ─── */
+  if(panel==="attivi") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>Clienti attivi</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{attivi.length} clienti con sedute disponibili</div>
+      {attivi.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun cliente attivo</div>:
+        attivi.map(c=>{const res=c.sedute_total-c.sedute_usate;return(
+          <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>setTab("clienti")}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto} · Piano {c.piano}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                <span style={Tag(K.gold,K.goldBg,K.goldBorder)}>{res} sed.</span>
+                <span style={{fontSize:10,color:K.muted}}>{c.sedute_usate}/{c.sedute_total} usate</span>
+              </div>
+            </div>
+          </div>
+        );})}
+    </div>
+  );
+
+  if(panel==="sessioni") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>Sessioni oggi</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{fmtDate(oggi)} · {pren.length} prenotazioni</div>
+      {pren.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessuna sessione oggi</div>:
+        pren.sort((a,b)=>a.ora.localeCompare(b.ora)).map(p=>(
+          <div key={p.id} style={C()}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{fontWeight:600,fontSize:18,color:K.gold,minWidth:50}}>{p.ora}</div>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:500,fontSize:14}}>{getNome(p.user_id)}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2}}>{p.tipo} · 30 min</div>
+              </div>
+              <span style={Tag(p.tipo==="EMS"?"#6BBEFC":"#B88EFF",p.tipo==="EMS"?"#08101e":"#100e1e")}>{p.tipo}</span>
+            </div>
+          </div>
+        ))
+      }
+      <button onClick={()=>setTab("agenda")} style={{...B("outline"),width:"100%",marginTop:8,padding:12,fontSize:13}}>Apri agenda completa →</button>
+    </div>
+  );
+
+  if(panel==="sedute5") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>Meno di 5 sedute</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{quasi5.length} clienti da ricontattare</div>
+      {quasi5.map(c=>{const res=c.sedute_total-c.sedute_usate;return(
+        <div key={c.id} style={C({border:`1px solid ${res<=3?K.dangerBorder:K.goldBorder}`,background:res<=3?K.dangerBg:K.goldBg})}>
+          <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:10}}>
+            <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
+              <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto} · {res} sedute rimaste</div>
+            </div>
+            <span style={Tag(res<=3?K.danger:K.gold,res<=3?K.dangerBg:K.goldBg,res<=3?K.dangerBorder:K.goldBorder)}>{res} sed.</span>
+          </div>
+          <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:8}}>
+            <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${(c.sedute_usate/c.sedute_total)*100}%`,background:res<=3?K.danger:K.gold,borderRadius:2}}/></div>
+            <span style={{fontSize:11,color:K.muted}}>{c.sedute_usate}/{c.sedute_total}</span>
+          </div>
+          <div style={{display:"flex",gap:6}}>
+            {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>📲 Invita BIA</a>}
+            {c.telefono&&res<=3&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 Rinnovo</a>}
+          </div>
+        </div>
+      );})}
+    </div>
+  );
+
+  if(panel==="followup") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>Follow-up aperti</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{followups.length} da gestire</div>
+      {followups.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun follow-up</div>:
+        followups.map(fw=>{const cl=clienti.find(c=>c.id===fw.cliente_id);return(
+          <div key={fw.id} style={C()}>
+            <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
+              <div style={{fontWeight:500,fontSize:14}}>{cl?`${cl.nome} ${cl.cognome}`:"—"}</div>
+              <span style={{fontSize:11,color:K.muted}}>{fw.data_contatto}</span>
+            </div>
+            {[["Motivo",fw.motivo],["Esito",fw.esito],["Prossima azione",fw.prossima_azione]].map(([l,v])=>v?(
+              <div key={l} style={{fontSize:12,marginBottom:2}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
+            ):null)}
+            {cl?.telefono&&<a href={`https://wa.me/39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:8,padding:"6px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
+          </div>
+        );})}
+      <button onClick={()=>setTab("followup")} style={{...B("outline"),width:"100%",marginTop:8,padding:12,fontSize:13}}>Gestisci follow-up →</button>
+    </div>
+  );
+
+  /* ─── VISTA PRINCIPALE DASHBOARD ─── */
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
-        <StatBox label="Clienti attivi" value={attivi} sub="con sedute"/>
-        <StatBox label="Sessioni oggi" value={pren.length} sub="prenotate" color="#9B8FFF"/>
-        <StatBox label="< 5 sedute" value={quasi5.length} sub="da ricontattare" color={K.gold}/>
-        <StatBox label="Follow-up" value={followups.length} sub="aperti" color={K.mutedMid}/>
+        <div onClick={()=>setPanel("attivi")} style={{...C({marginBottom:0,cursor:"pointer",transition:"border .2s"}),":hover":{borderColor:K.gold}}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>CLIENTI ATTIVI</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <div style={{fontSize:20,fontWeight:600,color:K.gold}}>{attivi.length}</div>
+            <div style={{fontSize:10,color:K.goldDim}}>dettagli →</div>
+          </div>
+          <div style={{fontSize:11,color:K.muted,marginTop:2}}>con sedute</div>
+        </div>
+        <div onClick={()=>setPanel("sessioni")} style={{...C({marginBottom:0,cursor:"pointer"})}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>SESSIONI OGGI</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <div style={{fontSize:20,fontWeight:600,color:"#9B8FFF"}}>{pren.length}</div>
+            <div style={{fontSize:10,color:K.goldDim}}>dettagli →</div>
+          </div>
+          <div style={{fontSize:11,color:K.muted,marginTop:2}}>prenotate</div>
+        </div>
+        <div onClick={()=>setPanel("sedute5")} style={{...C({marginBottom:0,cursor:"pointer",border:quasi5.length>0?`1px solid ${K.goldBorder}`:`1px solid ${K.border}`})}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>{"< 5 SEDUTE"}</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <div style={{fontSize:20,fontWeight:600,color:quasi5.length>0?K.gold:K.muted}}>{quasi5.length}</div>
+            <div style={{fontSize:10,color:K.goldDim}}>dettagli →</div>
+          </div>
+          <div style={{fontSize:11,color:K.muted,marginTop:2}}>da ricontattare</div>
+        </div>
+        <div onClick={()=>setPanel("followup")} style={{...C({marginBottom:0,cursor:"pointer"})}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>FOLLOW-UP</div>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-end"}}>
+            <div style={{fontSize:20,fontWeight:600,color:followups.length>0?K.mutedLight:K.muted}}>{followups.length}</div>
+            <div style={{fontSize:10,color:K.goldDim}}>dettagli →</div>
+          </div>
+          <div style={{fontSize:11,color:K.muted,marginTop:2}}>aperti</div>
+        </div>
       </div>
       {quasi5.length>0&&(
         <div style={{marginBottom:14}}>
-          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚠️ MENO DI 5 SEDUTE — INVIA BIA</div>
-          {quasi5.map(c=>{const res=c.sedute_total-c.sedute_usate;return(
-            <div key={c.id} style={C({border:`1px solid ${K.goldBorder}`,background:K.goldBg})}>
+          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚠️ AZIONI RAPIDE</div>
+          {quasi5.slice(0,3).map(c=>{const res=c.sedute_total-c.sedute_usate;return(
+            <div key={c.id} style={C({border:`1px solid ${res<=3?K.dangerBorder:K.goldBorder}`,background:res<=3?K.dangerBg:K.goldBg})}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div>
                   <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
                   <div style={{fontSize:12,color:K.muted}}>{c.pacchetto} · {res} sed. rimaste</div>
                 </div>
-                <a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{padding:"7px 12px",fontSize:12,textDecoration:"none"})}}>📲 BIA</a>
-              </div>
-            </div>
-          );})}
-        </div>
-      )}
-      {quasi3.length>0&&(
-        <div style={{marginBottom:14}}>
-          <div style={{fontSize:11,color:K.danger,letterSpacing:1,marginBottom:8}}>🔴 MENO DI 3 SEDUTE — RINNOVO</div>
-          {quasi3.map(c=>{const res=c.sedute_total-c.sedute_usate;return(
-            <div key={c.id} style={C({border:`1px solid ${K.dangerBorder}`,background:K.dangerBg})}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div>
-                  <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
-                  <div style={{fontSize:12,color:K.muted}}>{res} sedute rimaste</div>
+                <div style={{display:"flex",gap:6}}>
+                  {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>📲 BIA</a>}
+                  {c.telefono&&res<=3&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>💬</a>}
                 </div>
-                <a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{padding:"7px 12px",fontSize:12,textDecoration:"none"})}}>💬 Rinnovo</a>
               </div>
             </div>
           );})}
+          {quasi5.length>3&&<button onClick={()=>setPanel("sedute5")} style={{...B("flat"),width:"100%",fontSize:12,marginTop:4}}>Vedi tutti ({quasi5.length}) →</button>}
         </div>
       )}
       {canc3.length>0&&(
         <div>
-          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ 3 CANCELLAZIONI — SEDUTA SCALATA</div>
+          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ CANCELLAZIONI ECCESSIVE</div>
           {canc3.map(c=>(
-            <div key={c.id} style={C()}>
+            <div key={c.id} style={C({border:`1px solid ${K.dangerBorder}`,background:K.dangerBg})}>
               <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
               <div style={{fontSize:12,color:K.danger,marginTop:2}}>Cancellazioni: {c.cancellazioni} — seduta decurtata</div>
             </div>
