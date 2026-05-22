@@ -137,8 +137,9 @@ export default function App() {
     setCurrentUser(null);
   };
 
-  if(screen==="login") return <><style>{gs}</style><LoginScreen onLogin={handleLogin} onReg={()=>setScreen("reg")}/></>;
+  if(screen==="login") return <><style>{gs}</style><LoginScreen onLogin={handleLogin} onReg={()=>setScreen("reg")} onAdminReg={()=>setScreen("adminreg")}/></>;
   if(screen==="reg")   return <><style>{gs}</style><RegScreen onBack={()=>setScreen("login")} onDone={()=>setScreen("login")}/></>;
+  if(screen==="adminreg") return <><style>{gs}</style><AdminRegScreen onBack={()=>setScreen("login")} onDone={()=>setScreen("login")}/></>;
 
   return (
     <>
@@ -190,12 +191,19 @@ export default function App() {
 }
 
 /* ─── LOGIN ─── */
-function LoginScreen({onLogin, onReg}) {
-  const [isAdmin,setIsAdmin]=useState(false);
+const ADMIN_PIN = "2810";
+
+function LoginScreen({onLogin, onReg, onAdminReg}) {
   const [email,setEmail]=useState("");
   const [password,setPassword]=useState("");
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [logoTaps,setLogoTaps]=useState(0);
+  const [showPin,setShowPin]=useState(false);
+  const [pin,setPin]=useState("");
+  const [pinError,setPinError]=useState("");
+  const [adminEmail,setAdminEmail]=useState("");
+  const [adminPass,setAdminPass]=useState("");
 
   const handleLogin = async () => {
     if(!email||!password){setError("Inserisci email e password");return;}
@@ -204,16 +212,59 @@ function LoginScreen({onLogin, onReg}) {
       const {data,error:err} = await supabase.auth.signInWithPassword({email,password});
       if(err){setError("Email o password non corretti");setLoading(false);return;}
       const {data:prof} = await supabase.from("profiles").select("*").eq("id",data.user.id).single();
-      const r = isAdmin && prof?.is_admin ? "admin" : "user";
-      onLogin(r, prof, data.user);
+      onLogin("user", prof, data.user);
     } catch(e){setError("Errore di connessione.");}
     setLoading(false);
   };
 
+  const handleLogoTap = () => {
+    const t = logoTaps + 1;
+    setLogoTaps(t);
+    if(t >= 5){ setShowPin(true); setLogoTaps(0); }
+    setTimeout(()=>setLogoTaps(0), 3000);
+  };
+
+  const handleAdminLogin = async () => {
+    if(pin !== ADMIN_PIN){setPinError("PIN non valido");return;}
+    if(!adminEmail||!adminPass){setPinError("Inserisci email e password admin");return;}
+    setLoading(true);setPinError("");
+    try {
+      const {data,error:err} = await supabase.auth.signInWithPassword({email:adminEmail,password:adminPass});
+      if(err){setPinError("Credenziali admin non valide");setLoading(false);return;}
+      const {data:prof} = await supabase.from("profiles").select("*").eq("id",data.user.id).single();
+      if(!prof?.is_admin){setPinError("Questo account non è admin");await supabase.auth.signOut();setLoading(false);return;}
+      onLogin("admin", prof, data.user);
+    } catch(e){setPinError("Errore di connessione.");}
+    setLoading(false);
+  };
+
+  if(showPin) return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",background:K.black,fontFamily:"system-ui,sans-serif"}}>
+      <div style={{textAlign:"center",marginBottom:30}}>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={52}/></div>
+        <div style={{fontSize:14,fontWeight:600,color:"#9B8FFF",letterSpacing:2}}>ACCESSO ADMIN</div>
+      </div>
+      {pinError&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{pinError}</div>}
+      <div style={C({marginBottom:12})}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>PIN SICUREZZA</label>
+        <input type="password" value={pin} onChange={e=>setPin(e.target.value)} placeholder="••••" maxLength={4} style={{marginBottom:14,textAlign:"center",fontSize:20,letterSpacing:8}}/>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>EMAIL ADMIN</label>
+        <input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="admin@kendo.it" style={{marginBottom:14}}/>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>PASSWORD ADMIN</label>
+        <input type="password" value={adminPass} onChange={e=>setAdminPass(e.target.value)} onKeyDown={e=>e.key==="Enter"&&handleAdminLogin()} placeholder="••••••••" style={{marginBottom:20}}/>
+        <button onClick={handleAdminLogin} disabled={loading} style={{...B("gold"),width:"100%",padding:13,fontSize:14,opacity:loading?0.7:1,background:"#9B8FFF",color:"#fff"}}>
+          {loading?"VERIFICA...":"ACCESSO ADMIN"}
+        </button>
+      </div>
+      <button onClick={()=>{setShowPin(false);setPin("");setPinError("");}} style={B("ghost",{width:"100%",fontSize:12,marginBottom:12})}>← Torna al login</button>
+      <div style={{textAlign:"center",fontSize:12,color:K.muted}}>Non hai un account admin? <button onClick={onAdminReg} style={{background:"none",border:"none",color:"#9B8FFF",fontSize:12,cursor:"pointer"}}>Registra il tuo centro</button></div>
+    </div>
+  );
+
   return (
     <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",background:K.black,fontFamily:"system-ui,sans-serif"}}>
       <div style={{textAlign:"center",marginBottom:40}}>
-        <div style={{display:"flex",justifyContent:"center",marginBottom:12}}><Logo size={72}/></div>
+        <div style={{display:"flex",justifyContent:"center",marginBottom:12,cursor:"pointer"}} onClick={handleLogoTap}><Logo size={72}/></div>
         <div style={{fontSize:12,color:K.muted,letterSpacing:2}}>FITNESS & WELLNESS</div>
       </div>
       {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
@@ -226,10 +277,6 @@ function LoginScreen({onLogin, onReg}) {
           {loading?"ACCESSO IN CORSO...":"ACCEDI"}
         </button>
       </div>
-      <div style={{display:"flex",gap:8,marginBottom:16}}>
-        <button onClick={()=>setIsAdmin(false)} style={{...B(isAdmin?"ghost":"outline"),flex:1,fontSize:12}}>Utente</button>
-        <button onClick={()=>setIsAdmin(true)} style={{flex:1,background:isAdmin?"#0e0e1e":"transparent",color:isAdmin?"#9B8FFF":K.muted,border:`1px solid ${isAdmin?"#534AB7":K.border}`,borderRadius:8,padding:10,fontSize:12,cursor:"pointer"}}>Admin</button>
-      </div>
       <div style={{textAlign:"center",fontSize:12,color:K.muted}}>Non hai un account? <button onClick={onReg} style={{background:"none",border:"none",color:K.gold,fontSize:12,cursor:"pointer"}}>Registrati</button></div>
     </div>
   );
@@ -241,20 +288,22 @@ function RegScreen({onBack, onDone}) {
   const [sel,setSel]=useState("platinum");
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
+  const [success,setSuccess]=useState(false);
   const [f,setF]=useState({nome:"",cognome:"",email:"",password:"",peso:"",altezza:"",obiettivo:""});
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const registra = async () => {
     if(!f.nome||!f.email||!f.password){setError("Compila tutti i campi obbligatori");return;}
+    if(f.password.length<6){setError("La password deve avere almeno 6 caratteri");return;}
     setLoading(true);setError("");
     try {
-      const {data,error:err} = await supabase.auth.signUp({email:f.email,password:f.password});
+      const {data,error:err} = await supabase.auth.signUp({email:f.email,password:f.password,options:{data:{nome:f.nome}}});
       if(err){setError(err.message);setLoading(false);return;}
       if(data.user){
         await supabase.from("profiles").insert({
           id:data.user.id, nome:f.nome, cognome:f.cognome,
           email:f.email, piano:sel, pacchetto:"EMS",
-          sedute_total:10, sedute_usate:0, cancellazioni:0, is_admin:false
+          sedute_total:10, sedute_usate:0, cancellazioni:0, is_admin:false, tipo_account:"cliente"
         });
         if(f.peso&&f.altezza){
           const bmi=parseFloat((parseFloat(f.peso)/Math.pow(parseFloat(f.altezza)/100,2)).toFixed(1));
@@ -264,10 +313,24 @@ function RegScreen({onBack, onDone}) {
           });
         }
       }
-      onDone();
+      setSuccess(true);
     } catch(e){setError("Errore durante la registrazione.");}
     setLoading(false);
   };
+
+  if(success) return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",background:K.black,fontFamily:"system-ui,sans-serif",color:K.white}}>
+      <div style={{width:64,height:64,borderRadius:"50%",background:K.successBg,border:`1px solid ${K.success}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:20}}>✉️</div>
+      <div style={{fontWeight:600,fontSize:18,marginBottom:8,textAlign:"center"}}>Controlla la tua email!</div>
+      <div style={{fontSize:13,color:K.muted,textAlign:"center",marginBottom:8,lineHeight:1.6}}>
+        Abbiamo inviato un link di conferma a<br/><span style={{color:K.gold,fontWeight:500}}>{f.email}</span>
+      </div>
+      <div style={{fontSize:12,color:K.muted,textAlign:"center",marginBottom:28,lineHeight:1.5}}>
+        Clicca il link nell'email per attivare il tuo account.<br/>Controlla anche la cartella spam.
+      </div>
+      <button onClick={()=>onDone(null,null)} style={{...B("gold"),width:"100%",padding:13,fontSize:14}}>Torna al login</button>
+    </div>
+  );
 
   if(step===1) return (
     <div style={{maxWidth:390,margin:"0 auto",padding:24,background:K.black,minHeight:"100vh",color:K.white,fontFamily:"system-ui,sans-serif"}}>
@@ -276,10 +339,10 @@ function RegScreen({onBack, onDone}) {
       <div style={{fontSize:18,fontWeight:600,marginBottom:4}}>Crea account</div>
       <div style={{fontSize:12,color:K.muted,marginBottom:20}}>Unisciti a Kendo</div>
       {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
-      {[["Nome","nome","text"],["Cognome","cognome","text"],["Email","email","email"],["Password","password","password"],["Peso (kg)","peso","number"],["Altezza (cm)","altezza","number"]].map(([l,k,t])=>(
+      {[["Nome *","nome","text"],["Cognome *","cognome","text"],["Email *","email","email"],["Password *","password","password"],["Peso (kg)","peso","number"],["Altezza (cm)","altezza","number"]].map(([l,k,t])=>(
         <div key={k} style={{marginBottom:12}}>
           <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
-          <input type={t} value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={l}/>
+          <input type={t} value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={l.replace(" *","")}/>
         </div>
       ))}
       <div style={{marginBottom:20}}>
@@ -311,6 +374,103 @@ function RegScreen({onBack, onDone}) {
       ))}
       <button onClick={registra} disabled={loading} style={{...B("gold"),width:"100%",padding:13,fontSize:14,marginTop:4,opacity:loading?0.7:1}}>
         {loading?"REGISTRAZIONE...":"Inizia con "+PIANI.find(p=>p.id===sel)?.name}
+      </button>
+    </div>
+  );
+}
+
+/* ─── REGISTRAZIONE ADMIN ─── */
+function AdminRegScreen({onBack, onDone}) {
+  const [step,setStep]=useState(1);
+  const [loading,setLoading]=useState(false);
+  const [error,setError]=useState("");
+  const [success,setSuccess]=useState(false);
+  const [f,setF]=useState({nome:"",cognome:"",email:"",password:"",ragione_sociale:"",partita_iva:"",pec:"",sede_legale:"",telefono:""});
+  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+
+  const validaPI = (pi) => /^[0-9]{11}$/.test(pi);
+  const validaPEC = (pec) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(pec);
+
+  const prosegui = () => {
+    if(!f.ragione_sociale||!f.partita_iva||!f.pec||!f.sede_legale||!f.telefono){
+      setError("Tutti i campi aziendali sono obbligatori");return;
+    }
+    if(!validaPI(f.partita_iva)){setError("Partita IVA non valida (11 cifre)");return;}
+    if(!validaPEC(f.pec)){setError("Indirizzo PEC non valido");return;}
+    setError("");setStep(2);
+  };
+
+  const registra = async () => {
+    if(!f.nome||!f.cognome||!f.email||!f.password){setError("Compila tutti i campi");return;}
+    if(f.password.length<6){setError("La password deve avere almeno 6 caratteri");return;}
+    setLoading(true);setError("");
+    try {
+      const {data,error:err} = await supabase.auth.signUp({email:f.email,password:f.password,options:{data:{nome:f.nome,tipo:"admin"}}});
+      if(err){setError(err.message);setLoading(false);return;}
+      if(data.user){
+        await supabase.from("profiles").insert({
+          id:data.user.id, nome:f.nome, cognome:f.cognome,
+          email:f.email, telefono:f.telefono, piano:"gold", pacchetto:"EMS",
+          sedute_total:0, sedute_usate:0, cancellazioni:0, is_admin:true,
+          tipo_account:"admin", ragione_sociale:f.ragione_sociale,
+          partita_iva:f.partita_iva, pec:f.pec, sede_legale:f.sede_legale
+        });
+      }
+      setSuccess(true);
+    } catch(e){setError("Errore durante la registrazione.");}
+    setLoading(false);
+  };
+
+  if(success) return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:32,minHeight:"100vh",display:"flex",flexDirection:"column",justifyContent:"center",alignItems:"center",background:K.black,fontFamily:"system-ui,sans-serif",color:K.white}}>
+      <div style={{width:64,height:64,borderRadius:"50%",background:"#0e0e1e",border:"1px solid #534AB7",display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,marginBottom:20}}>✉️</div>
+      <div style={{fontWeight:600,fontSize:18,marginBottom:8,textAlign:"center",color:"#9B8FFF"}}>Registrazione admin completata!</div>
+      <div style={{fontSize:13,color:K.muted,textAlign:"center",marginBottom:8,lineHeight:1.6}}>
+        Abbiamo inviato un link di conferma a<br/><span style={{color:"#9B8FFF",fontWeight:500}}>{f.email}</span>
+      </div>
+      <div style={{fontSize:12,color:K.muted,textAlign:"center",marginBottom:28,lineHeight:1.5}}>
+        Conferma la tua email per attivare l'account admin.<br/>Controlla anche la cartella spam.
+      </div>
+      <button onClick={()=>onDone()} style={{...B("gold"),width:"100%",padding:13,fontSize:14,background:"#9B8FFF",color:"#fff"}}>Torna al login</button>
+    </div>
+  );
+
+  if(step===1) return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:24,background:K.black,minHeight:"100vh",color:K.white,fontFamily:"system-ui,sans-serif"}}>
+      <button onClick={onBack} style={B("ghost",{marginBottom:20,fontSize:12})}>← Indietro</button>
+      <div style={{display:"flex",justifyContent:"center",marginBottom:16}}><Logo size={42}/></div>
+      <div style={{fontSize:18,fontWeight:600,marginBottom:4,color:"#9B8FFF"}}>Registrazione Centro</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:20}}>Inserisci i dati della tua attività</div>
+      {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
+      {[["Ragione sociale *","ragione_sociale","text","Es. Kendo S.R.L.S."],["Partita IVA *","partita_iva","text","11 cifre"],["PEC *","pec","email","email@pec.it"],["Sede legale *","sede_legale","text","Via Roma 1, Milano"],["Telefono *","telefono","tel","333 1234567"]].map(([l,k,t,ph])=>(
+        <div key={k} style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
+          <input type={t} value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={ph}/>
+        </div>
+      ))}
+      <button onClick={prosegui} style={{...B("gold"),width:"100%",padding:13,fontSize:14,background:"#9B8FFF",color:"#fff",marginTop:8}}>Continua →</button>
+    </div>
+  );
+
+  return (
+    <div style={{maxWidth:390,margin:"0 auto",padding:24,background:K.black,minHeight:"100vh",color:K.white,fontFamily:"system-ui,sans-serif"}}>
+      <button onClick={()=>setStep(1)} style={B("ghost",{marginBottom:20,fontSize:12})}>← Indietro</button>
+      <div style={{fontSize:18,fontWeight:600,marginBottom:4,color:"#9B8FFF"}}>Dati personali admin</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:20}}>Responsabile dell'account</div>
+      {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
+      <div style={C({background:"#0a0a14",border:"1px solid #1e1e2e",marginBottom:16})}>
+        <div style={{fontSize:11,color:"#9B8FFF",marginBottom:6,letterSpacing:1}}>DATI AZIENDA</div>
+        <div style={{fontSize:13,color:K.mutedLight}}>{f.ragione_sociale}</div>
+        <div style={{fontSize:12,color:K.muted}}>P.IVA {f.partita_iva} · {f.sede_legale}</div>
+      </div>
+      {[["Nome *","nome","text","Nome"],["Cognome *","cognome","text","Cognome"],["Email *","email","email","email@tuazienda.it"],["Password *","password","password","Minimo 6 caratteri"]].map(([l,k,t,ph])=>(
+        <div key={k} style={{marginBottom:12}}>
+          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
+          <input type={t} value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={ph}/>
+        </div>
+      ))}
+      <button onClick={registra} disabled={loading} style={{...B("gold"),width:"100%",padding:13,fontSize:14,marginTop:8,background:"#9B8FFF",color:"#fff",opacity:loading?0.7:1}}>
+        {loading?"REGISTRAZIONE...":"Registra centro"}
       </button>
     </div>
   );
