@@ -1,5 +1,13 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
+import LeadAdmin from "./LeadAdmin";
+import {
+  isBiometricSupported,
+  hasEnrolledPasskey,
+  hasDeclinedEnroll,
+  BiometricUnlock,
+  BiometricEnrollPrompt
+} from "./BiometricGate";
 
 const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
@@ -108,7 +116,10 @@ function StatBox({label,value,sub,color}) {
 
 /* ─── MAIN APP ─── */
 export default function App() {
-  const [screen,setScreen]=useState("login");
+  // All'avvio: se esiste una passkey, mostriamo il gate biometrico
+  const initialScreen = (typeof window !== "undefined" && isBiometricSupported() && hasEnrolledPasskey())
+    ? "biolock" : "login";
+  const [screen,setScreen]=useState(initialScreen);
   const [role,setRole]=useState("user");
   const [tab,setTab]=useState("home");
   const [piano,setPiano]=useState("basic");
@@ -117,7 +128,7 @@ export default function App() {
   const [chk,setChk]=useState({diet:false,gym:false});
 
   const userNav=[{id:"home",icon:"○",label:"Home"},{id:"prenota",icon:"◷",label:"Prenota"},{id:"bia",icon:"◈",label:"BIA"},{id:"dieta",icon:"◉",label:"Dieta"},{id:"chat",icon:"◎",label:"AI"}];
-  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"chat",icon:"◎",label:"AI"}];
+  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"chat",icon:"◎",label:"AI"}];
   const nav = role==="admin"?adminNav:userNav;
 
   const handleLogin = (r, prof, user) => {
@@ -125,18 +136,39 @@ export default function App() {
     setProfile(prof);
     setCurrentUser(user);
     setPiano(prof?.piano||"basic");
-    setScreen("app");
     setTab("home");
+    // Proponi l'enroll biometrico solo se: supportato, non ancora attivato, non gia' rifiutato
+    if (isBiometricSupported() && !hasEnrolledPasskey() && !hasDeclinedEnroll()) {
+      setScreen("bioenroll");
+    } else {
+      setScreen("app");
+    }
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setScreen("login");
+    // Se c'e' una passkey, dopo logout torniamo al gate biometrico (no email/password ogni volta)
+    setScreen(hasEnrolledPasskey() ? "biolock" : "login");
     setRole("user");
     setProfile(null);
     setCurrentUser(null);
   };
 
+  // Quando l'utente sblocca col biometrico, ricarichiamo la sessione Supabase
+  const handleBiometricUnlock = async () => {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      // sessione scaduta → chiediamo password
+      setScreen("login");
+      return;
+    }
+    const { data: prof } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    handleLogin(prof?.is_admin ? "admin" : "user", prof, user);
+    setScreen("app"); // override: salta enroll se gia' siamo passati di li'
+  };
+
+  if(screen==="biolock") return <><style>{gs}</style><BiometricUnlock onUnlocked={handleBiometricUnlock} onUsePassword={()=>setScreen("login")}/></>;
+  if(screen==="bioenroll") return <><style>{gs}</style><BiometricEnrollPrompt userEmail={currentUser?.email||profile?.email||""} onDone={()=>setScreen("app")}/></>;
   if(screen==="login") return <><style>{gs}</style><LoginScreen onLogin={handleLogin} onReg={()=>setScreen("reg")} onAdminReg={()=>setScreen("adminreg")}/></>;
   if(screen==="reg")   return <><style>{gs}</style><RegScreen onBack={()=>setScreen("login")} onDone={()=>setScreen("login")}/></>;
   if(screen==="adminreg") return <><style>{gs}</style><AdminRegScreen onBack={()=>setScreen("login")} onDone={()=>setScreen("login")}/></>;
@@ -150,7 +182,7 @@ export default function App() {
             <Logo size={26}/>
             <div>
               <div style={{fontWeight:600,fontSize:15,color:K.gold,letterSpacing:3}}>KENDO</div>
-              <div style={{fontSize:10,color:K.muted,letterSpacing:1}}>{role==="admin"?"ADMIN":"PIANO "+piano.toUpperCase()}</div>
+              <div style={{fontSize:10,color:K.muted,letterSpacing:1}}>{role==="admin"?"ADMIN":"PIANO "+(piano||"basic").toUpperCase()}</div>
             </div>
           </div>
           <button onClick={handleLogout} style={B("ghost",{padding:"5px 12px",fontSize:11})}>Esci</button>
@@ -160,6 +192,7 @@ export default function App() {
           {role==="admin"?(
             <>
               {tab==="home"    && <Dashboard setTab={setTab}/>}
+              {tab==="lead"    && <LeadAdmin/>}
               {tab==="clienti" && <Clienti/>}
               {tab==="agenda"  && <Agenda/>}
               {tab==="followup"&& <FollowUp/>}
@@ -307,11 +340,12 @@ function RegScreen({onBack, onDone}) {
           email:f.email, piano:sel, pacchetto:"EMS",
           sedute_total:10, sedute_usate:0, cancellazioni:0, is_admin:false, tipo_account:"cliente"
         });
-        if(f.peso&&f.altezza){
-          const bmi=parseFloat((parseFloat(f.peso)/Math.pow(parseFloat(f.altezza)/100,2)).toFixed(1));
+        const pesoN=parseFloat(f.peso); const altN=parseFloat(f.altezza);
+        if(!isNaN(pesoN)&&!isNaN(altN)&&altN>0){
+          const bmi=parseFloat((pesoN/Math.pow(altN/100,2)).toFixed(1));
           await supabase.from("bia").insert({
-            user_id:data.user.id, peso:parseFloat(f.peso), altezza:parseFloat(f.altezza),
-            eta:0, grasso_perc:0, massa_muscolare:0, bmi, obiettivo:f.obiettivo, deficit:0
+            user_id:data.user.id, peso:pesoN, altezza:altN,
+            eta:0, grasso_perc:0, massa_muscolare:0, bmi, obiettivo:f.obiettivo||null, deficit:0
           });
         }
       }
@@ -481,8 +515,9 @@ function AdminRegScreen({onBack, onDone}) {
 /* ─── HOME UTENTE ─── */
 function HomeUser({piano, profile, chk, setChk}) {
   const [pren,setPren]=useState([]);
-  const p=PIANI.find(x=>x.id===piano);
-  const res=(profile?.sedute_total||0)-(profile?.sedute_usate||0);
+  const p=PIANI.find(x=>x.id===piano)||PIANI[0];
+  const res=Math.max(0,(profile?.sedute_total||0)-(profile?.sedute_usate||0));
+  if(!profile)return <Spinner/>;
 
   useEffect(()=>{
     if(!profile?.id)return;
@@ -504,8 +539,8 @@ function HomeUser({piano, profile, chk, setChk}) {
       </div>
       {prox&&<div style={C({border:`1px solid ${K.goldBorder}`,background:K.goldBg,marginBottom:10})}>
         <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>PROSSIMA SESSIONE</div>
-        <div style={{fontWeight:600,fontSize:16,color:K.gold}}>{prox.tipo} — {prox.ora}</div>
-        <div style={{fontSize:12,color:K.mutedMid,marginTop:3}}>{fmtDate(prox.data)} · 30 min</div>
+        <div style={{fontWeight:600,fontSize:16,color:K.gold}}>{prox?.tipo||"—"} — {prox?.ora||"—"}</div>
+        <div style={{fontSize:12,color:K.mutedMid,marginTop:3}}>{prox?.data?fmtDate(prox.data):"—"} · 30 min</div>
       </div>}
       <div style={C()}>
         <div style={{fontWeight:600,fontSize:13,marginBottom:12,letterSpacing:0.5}}>CHECK-IN OGGI</div>
@@ -539,8 +574,8 @@ function Prenota({piano, userId, profile, setProfile}) {
 
   useEffect(()=>{loadPren();},[loadPren]);
 
-  const busy=pren.filter(p=>p.data===day&&p.tipo===tipo).map(p=>p.ora);
-  const mine=pren.filter(p=>p.user_id===userId).sort((a,b)=>a.data.localeCompare(b.data)||a.ora.localeCompare(b.ora));
+  const busy=(pren||[]).filter(p=>p?.data===day&&p?.tipo===tipo).map(p=>p?.ora).filter(Boolean);
+  const mine=(pren||[]).filter(p=>p?.user_id===userId).sort((a,b)=>(a?.data||"").localeCompare(b?.data||"")||(a?.ora||"").localeCompare(b?.ora||""));
 
   const prenota=async(ora)=>{
     const {data,error}=await supabase.from("prenotazioni").insert({user_id:userId,data:day,ora,tipo,stato:"confermata"}).select().single();
@@ -550,7 +585,7 @@ function Prenota({piano, userId, profile, setProfile}) {
   const cancella=async(id)=>{
     const oggi=new Date().toISOString().split("T")[0];
     const mese=oggi.slice(0,7);
-    const cancMese=pren.filter(x=>x.user_id===userId&&x.data.startsWith(mese)&&x.stato==="cancellata").length;
+    const cancMese=(pren||[]).filter(x=>x?.user_id===userId&&(x?.data||"").startsWith(mese)&&x?.stato==="cancellata").length;
     await supabase.from("prenotazioni").update({stato:"cancellata"}).eq("id",id);
     if(cancMese+1>=3){
       const newUsate=Math.min((profile?.sedute_usate||0)+1, profile?.sedute_total||10);
@@ -627,9 +662,10 @@ function BIATab({userId}) {
   const [loading,setLoading]=useState(true);
 
   useEffect(()=>{
-    if(!userId)return;
-    supabase.from("bia").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(1).single()
-      .then(({data})=>{setBia(data);setLoading(false);});
+    if(!userId){setLoading(false);return;}
+    supabase.from("bia").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(1).maybeSingle()
+      .then(({data,error})=>{if(!error)setBia(data);setLoading(false);})
+      .catch(()=>{setBia(null);setLoading(false);});
   },[userId]);
 
   if(loading)return <Spinner/>;
@@ -718,8 +754,9 @@ function ChatAI({piano, isAdmin, userId}) {
 
   useEffect(()=>{
     if(!userId||isAdmin)return;
-    supabase.from("bia").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(1).single()
-      .then(({data})=>setBia(data));
+    supabase.from("bia").select("*").eq("user_id",userId).order("created_at",{ascending:false}).limit(1).maybeSingle()
+      .then(({data,error})=>{if(!error)setBia(data);})
+      .catch(()=>setBia(null));
   },[userId,isAdmin]);
 
   const bioStr=bia?`Dati BIA utente: peso ${bia.peso}kg, altezza ${bia.altezza}cm, grasso ${bia.grasso_perc}%, muscolare ${bia.massa_muscolare}kg, BMI ${bia.bmi}, obiettivo: ${bia.obiettivo}, deficit: ${bia.deficit} kcal/gg.`:"";
@@ -795,31 +832,35 @@ function Dashboard({setTab}) {
   const [clienti,setClienti]=useState([]);
   const [followups,setFollowups]=useState([]);
   const [pren,setPren]=useState([]);
+  const [leadsNuovi,setLeadsNuovi]=useState([]);
   const [loading,setLoading]=useState(true);
   const [panel,setPanel]=useState(null);
   const oggi=new Date().toISOString().split("T")[0];
 
   useEffect(()=>{
     Promise.all([
-      supabase.from("profiles").select("*").eq("is_admin",false),
+      supabase.from("clienti").select("*"),
       supabase.from("followup").select("*"),
       supabase.from("prenotazioni").select("*").eq("data",oggi).eq("stato","confermata"),
-    ]).then(([{data:c},{data:f},{data:p}])=>{
-      setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLoading(false);
-    });
+      supabase.from("leads").select("id,stato").eq("stato","nuovo"),
+    ]).then(([{data:c},{data:f},{data:p},{data:lN}])=>{
+      setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLeadsNuovi(lN||[]);setLoading(false);
+    }).catch(()=>{setLoading(false);});
   },[oggi]);
 
   if(loading)return <Spinner/>;
 
-  const attivi=clienti.filter(c=>c.sedute_usate<c.sedute_total);
-  const quasi5=clienti.filter(c=>c.sedute_total-c.sedute_usate<=5);
-  const quasi3=clienti.filter(c=>c.sedute_total-c.sedute_usate<=3);
-  const canc3=clienti.filter(c=>c.cancellazioni>=3);
+  const cList=clienti||[];
+  const attivi=cList.filter(c=>(c?.sedute_usate||0)<(c?.sedute_total||0));
+  const quasi5=cList.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=5);
+  const quasi3=cList.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=3);
+  const canc3=cList.filter(c=>(c?.cancellazioni||0)>=3);
 
-  const msgBia=(c)=>`https://wa.me/39${c.telefono}?text=${encodeURIComponent(`Ciao ${c.nome}! 👋 Ti ricordiamo che hai ancora sessioni disponibili. Ti invitiamo a fissare un appuntamento BIA per monitorare i tuoi progressi. — Team Kendo`)}`;
-  const msgRinnovo=(c)=>`https://wa.me/39${c.telefono}?text=${encodeURIComponent(`Ciao ${c.nome}! 🏆 Ti mancano solo ${c.sedute_total-c.sedute_usate} sedute. Puoi rinnovare il pacchetto con uno sconto riservato a te! — Team Kendo`)}`;
+  const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
+  const msgBia=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 👋 Ti ricordiamo che hai ancora sessioni disponibili. Ti invitiamo a fissare un appuntamento BIA per monitorare i tuoi progressi. — Team Kendo`)}`;
+  const msgRinnovo=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Ti mancano solo ${(c?.sedute_total||0)-(c?.sedute_usate||0)} sedute. Puoi rinnovare il pacchetto con uno sconto riservato a te! — Team Kendo`)}`;
 
-  const getNome=(uid)=>{const c=clienti.find(x=>x.id===uid);return c?`${c.nome} ${c.cognome}`:"Cliente";};
+  const getNome=(uid)=>{const c=cList.find(x=>x?.id===uid);return c?`${c.nome||""} ${c.cognome||""}`.trim():"Cliente";};
 
   /* ─── PANNELLI DETTAGLIO ─── */
   if(panel==="attivi") return (
@@ -923,6 +964,15 @@ function Dashboard({setTab}) {
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
+      {leadsNuovi.length>0&&(
+        <div onClick={()=>setTab("lead")} style={C({cursor:"pointer",border:`1px solid ${K.gold}`,background:K.goldBg,display:"flex",alignItems:"center",gap:14,marginBottom:14})}>
+          <div style={{width:44,height:44,borderRadius:"50%",background:K.gold,color:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:18}}>◆</div>
+          <div style={{flex:1}}>
+            <div style={{fontWeight:600,fontSize:14,color:K.gold}}>{leadsNuovi.length} {leadsNuovi.length===1?"nuovo lead da contattare":"nuovi lead da contattare"}</div>
+            <div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Tocca per aprire la lista lead →</div>
+          </div>
+        </div>
+      )}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:14}}>
         <div onClick={()=>setPanel("attivi")} style={{...C({marginBottom:0,cursor:"pointer",transition:"border .2s"}),":hover":{borderColor:K.gold}}}>
           <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>CLIENTI ATTIVI</div>
@@ -1033,39 +1083,54 @@ function Clienti() {
   const [f,setF]=useState(emptyF);
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
 
+  const [searchTerm,setSearchTerm]=useState("");
+
   const load=async()=>{
-    const {data}=await supabase.from("profiles").select("*").eq("is_admin",false).order("cognome");
+    const {data}=await supabase.from("clienti").select("*").order("cognome",{nullsFirst:false});
     setClienti(data||[]);setLoading(false);
   };
   useEffect(()=>{load();},[]);
 
   const aggiungi=async()=>{
     const tot=PACK_SED[f.pacchetto]||10;
-    const {data}=await supabase.from("profiles").insert({...f,sedute_total:tot,sedute_usate:0,piano:"basic",cancellazioni:0,is_admin:false}).select().single();
+    const payload={
+      nome:f.nome, cognome:f.cognome, email:f.email||null, telefono:f.telefono||null,
+      data_nascita:f.data_nascita||null, note:f.note||null, pacchetto:f.pacchetto,
+      sedute_total:tot, sedute_usate:0, status_crm:"CLIENTE ATTIVO", negozio:"FIT Padova"
+    };
+    const {data}=await supabase.from("clienti").insert(payload).select().single();
     if(data){setClienti(p=>[...p,data]);setF(emptyF);setShowAdd(false);}
   };
   const salvaModifica=async()=>{
-    await supabase.from("profiles").update(f).eq("id",sel);
-    setClienti(p=>p.map(c=>c.id===sel?{...c,...f}:c));
+    const patch={nome:f.nome,cognome:f.cognome,email:f.email||null,telefono:f.telefono||null,
+      data_nascita:f.data_nascita||null,note:f.note||null,pacchetto:f.pacchetto};
+    await supabase.from("clienti").update(patch).eq("id",sel);
+    setClienti(p=>p.map(c=>c.id===sel?{...c,...patch}:c));
     setEditMode(false);
   };
   const elimina=async(id)=>{
-    await supabase.from("profiles").delete().eq("id",id);
+    if(!window.confirm("Sicuro di eliminare questo cliente?"))return;
+    await supabase.from("clienti").delete().eq("id",id);
     setClienti(p=>p.filter(c=>c.id!==id));setSel(null);
   };
   const segnaSeduta=async(id)=>{
     const c=clienti.find(x=>x.id===id);
-    if(!c||c.sedute_usate>=c.sedute_total)return;
-    const newUsate=c.sedute_usate+1;
-    await supabase.from("profiles").update({sedute_usate:newUsate}).eq("id",id);
+    if(!c||(c.sedute_usate||0)>=(c.sedute_total||0))return;
+    const newUsate=(c.sedute_usate||0)+1;
+    await supabase.from("clienti").update({sedute_usate:newUsate}).eq("id",id);
     setClienti(p=>p.map(x=>x.id===id?{...x,sedute_usate:newUsate}:x));
   };
   const togliSeduta=async(id)=>{
     const c=clienti.find(x=>x.id===id);
-    if(!c||c.sedute_usate<=0)return;
-    const newUsate=c.sedute_usate-1;
-    await supabase.from("profiles").update({sedute_usate:newUsate}).eq("id",id);
+    if(!c||(c.sedute_usate||0)<=0)return;
+    const newUsate=(c.sedute_usate||0)-1;
+    await supabase.from("clienti").update({sedute_usate:newUsate}).eq("id",id);
     setClienti(p=>p.map(x=>x.id===id?{...x,sedute_usate:newUsate}:x));
+  };
+  const setPacchetto=async(id,pack)=>{
+    const tot=PACK_SED[pack]||10;
+    await supabase.from("clienti").update({pacchetto:pack,sedute_total:tot}).eq("id",id);
+    setClienti(p=>p.map(x=>x.id===id?{...x,pacchetto:pack,sedute_total:tot}:x));
   };
 
   if(loading)return <Spinner/>;
@@ -1075,15 +1140,18 @@ function Clienti() {
   }
 
   if(sel){
-    const c=clienti.find(x=>x.id===sel);
+    const c=(clienti||[]).find(x=>x?.id===sel);
     if(!c)return null;
-    const res=c.sedute_total-c.sedute_usate;
+    const tot=c.sedute_total||0; const usate=c.sedute_usate||0; const res=tot-usate;
+    const fmtDate=(s)=>s?new Date(s).toLocaleDateString("it-IT"):"—";
+    const waPhone=(c.telefono||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
+    const waText=`Ciao ${c.nome||""}! 👋 Sono di Kendo (Fit & Go Padova).`;
     return (
       <div>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
           <button onClick={()=>setSel(null)} style={B("ghost",{fontSize:12})}>← Clienti</button>
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>{setF({nome:c.nome,cognome:c.cognome,data_nascita:c.data_nascita,luogo_nascita:c.luogo_nascita,indirizzo:c.indirizzo,telefono:c.telefono,email:c.email,note:c.note,pacchetto:c.pacchetto,piano:c.piano});setEditMode(true);}} style={B("outline",{padding:"7px 14px",fontSize:12})}>✏️ Modifica</button>
+            <button onClick={()=>{setF({nome:c.nome||"",cognome:c.cognome||"",data_nascita:c.data_nascita||"",luogo_nascita:"",indirizzo:"",telefono:c.telefono||"",email:c.email||"",note:c.note||"",pacchetto:c.pacchetto||"EMS"});setEditMode(true);}} style={B("outline",{padding:"7px 14px",fontSize:12})}>✏️ Modifica</button>
             <button onClick={()=>elimina(c.id)} style={B("danger",{padding:"7px 14px",fontSize:12})}>🗑 Elimina</button>
           </div>
         </div>
@@ -1092,57 +1160,90 @@ function Clienti() {
             <div style={{width:44,height:44,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:600,color:K.gold}}>
               {(c.nome||"?")[0]}{(c.cognome||"?")[0]}
             </div>
-            <div>
-              <div style={{fontWeight:600,fontSize:16}}>{c.nome} {c.cognome}</div>
-              <div style={{fontSize:12,color:K.muted,marginTop:1}}>{c.pacchetto} · Piano {c.piano}</div>
+            <div style={{flex:1}}>
+              <div style={{fontWeight:600,fontSize:16}}>{c.nome||""} {c.cognome||""}</div>
+              <div style={{fontSize:12,color:K.muted,marginTop:1}}>{c.pacchetto||"—"} · {c.status_crm||"CLIENTE ATTIVO"}</div>
             </div>
           </div>
           <div style={{borderTop:`1px solid ${K.border}`,paddingTop:12,display:"flex",flexDirection:"column",gap:8}}>
-            {[["Data nascita",c.data_nascita?new Date(c.data_nascita).toLocaleDateString("it-IT")+" ("+fmtAge(c.data_nascita)+" anni)":"—"],["Luogo nascita",c.luogo_nascita||"—"],["Indirizzo",c.indirizzo||"—"],["Telefono",c.telefono||"—"],["Email",c.email||"—"],["Note",c.note||"—"]].map(([l,v])=>(
+            {[
+              ["Telefono",c.telefono||"—"],
+              ["Email",c.email||"—"],
+              ["Data nascita",c.data_nascita?new Date(c.data_nascita).toLocaleDateString("it-IT")+" ("+fmtAge(c.data_nascita)+" anni)":"—"],
+              ["Origine",c.origine||"—"],
+              ["Scadenza iscrizione",fmtDate(c.scadenza_iscrizione)],
+              ["Certificato medico",fmtDate(c.scadenza_certificato_medico)],
+              ["Ultimo appuntamento",fmtDate(c.ultimo_appt_data)],
+              ["Ultima BIA",fmtDate(c.ultima_bia_data)],
+              ["Valore cliente",`€${(c.valore_cliente||0).toFixed(2)}`],
+              ["Posizione debitoria",`€${(c.posizione_debitoria||0).toFixed(2)}`],
+              ["Note",c.note||"—"]
+            ].map(([l,v])=>(
               <div key={l} style={{fontSize:13}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
             ))}
           </div>
         </div>
-        <ClienteBia clienteId={c.id}/>
         <div style={C()}>
+          <div style={{fontWeight:500,marginBottom:10,fontSize:13}}>PACCHETTO</div>
+          <div style={{display:"flex",gap:6,marginBottom:12}}>
+            {PACK.map(p=>(
+              <button key={p} onClick={()=>setPacchetto(c.id,p)} style={{...B(c.pacchetto===p?"gold":"ghost",{flex:1,padding:"8px 4px",fontSize:11})}}>{p.replace("Combinato ","")}</button>
+            ))}
+          </div>
           <div style={{fontWeight:500,marginBottom:10,fontSize:13}}>SEDUTE</div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
-            <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${(c.sedute_usate/c.sedute_total)*100}%`,background:res<=3?K.danger:K.gold,borderRadius:2}}/></div>
-            <span style={{fontSize:13,color:res<=3?K.danger:K.gold,fontWeight:600}}>{c.sedute_usate}/{c.sedute_total}</span>
+            <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${tot>0?(usate/tot)*100:0}%`,background:res<=3?K.danger:K.gold,borderRadius:2}}/></div>
+            <span style={{fontSize:13,color:res<=3?K.danger:K.gold,fontWeight:600}}>{usate}/{tot}</span>
           </div>
-          {c.cancellazioni>=3&&<div style={{fontSize:12,color:K.danger,marginBottom:8}}>⚡ {c.cancellazioni} cancellazioni — seduta scalata automaticamente</div>}
           <div style={{display:"flex",gap:8}}>
-            <button onClick={()=>togliSeduta(c.id)} disabled={c.sedute_usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
-            <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({c.sedute_usate}/{c.sedute_total})</button>
-            {c.telefono&&<a href={`https://wa.me/39${c.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>WhatsApp</a>}
+            <button onClick={()=>togliSeduta(c.id)} disabled={usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
+            <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({usate}/{tot})</button>
+            {waPhone&&<a href={`https://wa.me/39${waPhone}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>💬</a>}
           </div>
         </div>
       </div>
     );
   }
 
+  const lista=(clienti||[]).filter(c=>{
+    if(!searchTerm)return true;
+    const q=searchTerm.toLowerCase();
+    return [c?.nome,c?.cognome,c?.email,c?.telefono].filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
+  });
+
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontWeight:600,fontSize:16}}>Clienti ({clienti.length})</div>
+        <div style={{fontWeight:600,fontSize:16}}>Clienti ({lista.length}/{clienti.length})</div>
         <button onClick={()=>setShowAdd(true)} style={B("gold",{padding:"8px 14px",fontSize:12})}>+ Nuovo</button>
       </div>
+      <input
+        placeholder="Cerca per nome, telefono, email…"
+        value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}
+        style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:12}}/>
       {clienti.length===0&&<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun cliente ancora</div>}
-      {clienti.map(c=>{const res=c.sedute_total-c.sedute_usate;return(
-        <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>setSel(c.id)}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
-            <div style={{flex:1}}>
-              <div style={{fontWeight:500,fontSize:14}}>{c.nome} {c.cognome}</div>
-              <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto} · {c.email}</div>
-            </div>
-            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
-              <span style={Tag(res<=3?K.danger:K.gold,res<=3?K.dangerBg:K.goldBg,res<=3?K.dangerBorder:K.goldBorder)}>{res} sed.</span>
-              {c.cancellazioni>=3&&<span style={Tag(K.danger,K.dangerBg)}>⚡ canc.</span>}
+      {lista.length===0&&clienti.length>0&&<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun risultato per "{searchTerm}"</div>}
+      {lista.map(c=>{
+        const tot=c.sedute_total||0; const usate=c.sedute_usate||0; const res=tot-usate;
+        const haPacchetto=tot>0;
+        return(
+          <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>setSel(c.id)}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.pacchetto||"—"} · {c.email||c.telefono||"—"}</div>
+              </div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:4}}>
+                {haPacchetto
+                  ? <span style={Tag(res<=3?K.danger:K.gold,res<=3?K.dangerBg:K.goldBg,res<=3?K.dangerBorder:K.goldBorder)}>{res} sed.</span>
+                  : <span style={Tag(K.muted,"#0e0e0e",K.borderMid)}>no pkg</span>}
+                {(c.posizione_debitoria||0)>0&&<span style={Tag(K.danger,K.dangerBg)}>€ debito</span>}
+              </div>
             </div>
           </div>
-        </div>
-      );})}
+        );
+      })}
     </div>
   );
 }
@@ -1155,8 +1256,10 @@ function ClienteBia({clienteId}) {
   const ub=(k,v)=>setFb(p=>({...p,[k]:v}));
 
   useEffect(()=>{
-    supabase.from("bia").select("*").eq("user_id",clienteId).order("created_at",{ascending:false}).limit(1).single()
-      .then(({data})=>setBia(data));
+    if(!clienteId)return;
+    supabase.from("bia").select("*").eq("user_id",clienteId).order("created_at",{ascending:false}).limit(1).maybeSingle()
+      .then(({data,error})=>{if(!error)setBia(data);})
+      .catch(()=>setBia(null));
   },[clienteId]);
 
   const salvaBia=async()=>{
@@ -1221,7 +1324,7 @@ function Agenda() {
   useEffect(()=>{
     Promise.all([
       supabase.from("prenotazioni").select("*").eq("stato","confermata"),
-      supabase.from("profiles").select("id,nome,cognome").eq("is_admin",false),
+      supabase.from("clienti").select("id,nome,cognome,user_id"),
     ]).then(([{data:p},{data:c}])=>{setPren(p||[]);setClienti(c||[]);setLoading(false);});
   },[]);
 
@@ -1269,7 +1372,6 @@ function Agenda() {
   );
 }
 
-/* ─── FOLLOWUP ADMIN ─── */
 function FollowUp() {
   const [clienti,setClienti]=useState([]);
   const [followups,setFollowups]=useState([]);
@@ -1280,7 +1382,7 @@ function FollowUp() {
 
   useEffect(()=>{
     Promise.all([
-      supabase.from("profiles").select("id,nome,cognome,telefono").eq("is_admin",false),
+      supabase.from("clienti").select("id,nome,cognome,telefono,user_id"),
       supabase.from("followup").select("*").order("created_at",{ascending:false}),
     ]).then(([{data:c},{data:fw}])=>{setClienti(c||[]);setFollowups(fw||[]);setLoading(false);});
   },[]);
