@@ -130,6 +130,14 @@ const useIsDesktop = () => {
 };
 
 export default function App() {
+  // Routing pubblico: /prova-gratuita o ?prova=1 mostra la landing senza login
+  if (typeof window !== "undefined") {
+    const p = window.location.pathname;
+    const q = window.location.search;
+    if (p.startsWith("/prova-gratuita") || p === "/prova" || q.includes("prova=1")) {
+      return <><style>{gs}</style><LandingProvaGratuita/></>;
+    }
+  }
   const isDesktop = useIsDesktop();
   const [screen,setScreen]=useState("loading");
   const [role,setRole]=useState("user");
@@ -945,16 +953,53 @@ function Dashboard({setTab}) {
   const [panel,setPanel]=useState(null);
   const oggi=new Date().toISOString().split("T")[0];
 
+  const domani = (()=>{const d=new Date();d.setDate(d.getDate()+1);return d.toISOString().split("T")[0];})();
+  const [prenDomani,setPrenDomani]=useState([]);
+
   useEffect(()=>{
     Promise.all([
       supabase.from("clienti").select("*"),
       supabase.from("followup").select("*"),
       supabase.from("prenotazioni").select("*").eq("data",oggi).eq("stato","confermata"),
       supabase.from("leads").select("id,stato").eq("stato","nuovo"),
-    ]).then(([{data:c},{data:f},{data:p},{data:lN}])=>{
-      setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLeadsNuovi(lN||[]);setLoading(false);
+      supabase.from("prenotazioni").select("*").eq("data",domani).eq("stato","confermata"),
+    ]).then(([{data:c},{data:f},{data:p},{data:lN},{data:pD}])=>{
+      setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLeadsNuovi(lN||[]);setPrenDomani(pD||[]);setLoading(false);
     }).catch(()=>{setLoading(false);});
-  },[oggi]);
+  },[oggi,domani]);
+
+  // NOTIFICHE PUSH NUOVI LEAD: polling ogni 60s + Notification API
+  useEffect(()=>{
+    if(typeof window==="undefined"||!("Notification" in window))return;
+    let lastIds = new Set();
+    let isMounted = true;
+    const check = async () => {
+      const {data} = await supabase.from("leads").select("id,nome,cognome,cellulare,created_at").eq("stato","nuovo").order("created_at",{ascending:false}).limit(20);
+      if (!isMounted || !data) return;
+      const currentIds = new Set(data.map(x=>x.id));
+      if (lastIds.size > 0) {
+        const nuoviAppena = data.filter(x => !lastIds.has(x.id));
+        for (const n of nuoviAppena) {
+          if (Notification.permission === "granted") {
+            try {
+              const notif = new Notification("📩 Nuovo lead Kendo", {
+                body: `${n.nome||""} ${n.cognome||""} · ${n.cellulare||"senza tel"}`,
+                tag: "lead-" + n.id,
+                icon: "/logo192.png",
+              });
+              notif.onclick = () => { window.focus(); notif.close(); };
+            } catch(_) {}
+          }
+        }
+      }
+      lastIds = currentIds;
+    };
+    // Richiede permesso solo su click utente: l'admin può abilitare manualmente
+    check();
+    const iv = setInterval(check, 60000);
+    return () => { isMounted = false; clearInterval(iv); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[]);
 
   if(loading)return <Spinner/>;
 
@@ -1246,11 +1291,41 @@ function Dashboard({setTab}) {
     </div>
   );
 
+  if(panel==="reminder24h") {
+    const getCliente=(uid)=>clienti.find(x=>x.user_id===uid)||{};
+    return (
+      <div>
+        <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+        <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>⏰ Reminder per domani</div>
+        <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{prenDomani.length} sessioni prenotate per {new Date(domani).toLocaleDateString("it-IT",{weekday:"long",day:"numeric",month:"long"})}</div>
+        {prenDomani.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessuna prenotazione domani</div>:
+          prenDomani.sort((a,b)=>(a.ora||"").localeCompare(b.ora||"")).map(p=>{
+            const c=getCliente(p.user_id);
+            const tel=(c.telefono||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
+            const msg=`Ciao ${c.nome||""}! ⏰ Ti ricordo la tua seduta di ${p.tipo||"allenamento"} di domani alle ${p.ora||""}. Ci vediamo in centro! 💪⚡`;
+            return (
+              <div key={p.id} style={C()}>
+                <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+                  <div style={{width:44,height:44,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,fontWeight:600,color:K.gold,flexShrink:0}}>{p.ora||"?"}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontWeight:500,fontSize:14}}>{c.nome||"?"} {c.cognome||""}</div>
+                    <div style={{fontSize:11,color:K.muted,marginTop:2}}>{p.tipo||"—"}</div>
+                  </div>
+                </div>
+                {tel&&<button onClick={()=>apriWa(tel,msg)} style={{...B("success",{display:"block",width:"100%",padding:"8px",fontSize:12,textAlign:"center",cursor:"pointer"})}}>💬 Manda reminder</button>}
+              </div>
+            );
+          })
+        }
+      </div>
+    );
+  }
+
   /* ─── VISTA PRINCIPALE DASHBOARD ─── */
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
-      {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0||certMedicoScad.length>0||iscrizioneScad.length>0||compleanniMese.length>0)&&(
+      {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0||certMedicoScad.length>0||iscrizioneScad.length>0||compleanniMese.length>0||prenDomani.length>0)&&(
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ AZIONI DI OGGI</div>
           {rinnovo3.length>0&&(
@@ -1284,9 +1359,15 @@ function Dashboard({setTab}) {
             </div>
           )}
           {compleanniMese.length>0&&(
-            <div onClick={()=>setPanel("compleanno")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:0})}>
+            <div onClick={()=>setPanel("compleanno")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
               <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,color:K.gold,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:16,border:`1px solid ${K.goldBorder}`}}>🎂</div>
               <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.gold}}>{compleanniMese.length} compleanni questo mese</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Manda gli auguri →</div></div>
+            </div>
+          )}
+          {prenDomani.length>0&&(
+            <div onClick={()=>setPanel("reminder24h")} style={C({cursor:"pointer",border:`1px solid ${K.infoBorder||"#102030"}`,background:K.infoBg||"#08101e",display:"flex",alignItems:"center",gap:14,marginBottom:0})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.info||"#3a7bd5",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>⏰</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.info||"#3a7bd5"}}>{prenDomani.length} reminder da inviare (domani)</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Manda i promemoria WhatsApp →</div></div>
             </div>
           )}
         </div>
@@ -1590,6 +1671,102 @@ function Clienti() {
   );
 }
 
+/* ─── LANDING PUBBLICA PROVA GRATUITA ─── */
+function LandingProvaGratuita() {
+  const [f, setF] = useState({ nome: "", cognome: "", email: "", telefono: "", obiettivo: "", note: "", honeypot: "" });
+  const [formStartedAt] = useState(Date.now());
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState("");
+  const u = (k, v) => setF(p => ({ ...p, [k]: v }));
+
+  const invia = async () => {
+    setError("");
+    if (!f.nome || f.nome.length < 2) { setError("Inserisci il tuo nome"); return; }
+    if (!f.telefono || f.telefono.replace(/[^0-9]/g, "").length < 8) { setError("Inserisci un numero valido"); return; }
+    setSending(true);
+    try {
+      const r = await fetch("/api/lead-public", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...f, formStartedAt }),
+      });
+      const data = await r.json();
+      if (!r.ok) { setError(data?.error || "Errore"); setSending(false); return; }
+      setDone(true);
+    } catch (e) {
+      setError("Connessione assente, riprova");
+    }
+    setSending(false);
+  };
+
+  if (done) return (
+    <div style={{minHeight:"100vh",background:K.black,color:K.white,display:"flex",alignItems:"center",justifyContent:"center",padding:"20px",fontFamily:"system-ui,sans-serif"}}>
+      <div style={{maxWidth:440,width:"100%",textAlign:"center"}}>
+        <div style={{fontSize:60,marginBottom:14}}>✅</div>
+        <div style={{fontWeight:700,fontSize:22,color:K.gold,marginBottom:10,letterSpacing:1}}>RICHIESTA INVIATA</div>
+        <div style={{fontSize:14,color:K.mutedLight,lineHeight:1.6,marginBottom:20}}>
+          Grazie {f.nome}! 🎁<br/>Ti contatteremo entro 24h su WhatsApp al numero indicato per fissare insieme la tua prova gratuita.
+        </div>
+        <div style={{fontSize:12,color:K.muted}}>Fit And Go Padova ⚡ · Allenamento EMS + Vacufit</div>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{minHeight:"100vh",background:K.black,color:K.white,fontFamily:"system-ui,sans-serif"}}>
+      <div style={{maxWidth:480,margin:"0 auto",padding:"30px 18px 60px"}}>
+        <div style={{textAlign:"center",marginBottom:24}}>
+          <Logo size={48}/>
+          <div style={{fontWeight:700,fontSize:24,color:K.gold,marginTop:10,letterSpacing:4}}>KENDO</div>
+          <div style={{fontSize:11,color:K.muted,letterSpacing:2,marginTop:2}}>FIT AND GO PADOVA</div>
+        </div>
+        <div style={C({padding:"24px 20px"})}>
+          <div style={{fontWeight:700,fontSize:22,color:K.gold,marginBottom:8,lineHeight:1.2}}>🎁 Prova gratuita EMS o Vacufit</div>
+          <div style={{fontSize:13,color:K.mutedLight,lineHeight:1.5,marginBottom:20}}>
+            20 minuti di allenamento personalizzato senza impegno. Compila il form, ti contattiamo entro 24h per fissare insieme la tua prova.
+          </div>
+          <div style={{display:"flex",flexDirection:"column",gap:12}}>
+            <input placeholder="Nome *" value={f.nome} onChange={e=>u("nome",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}/>
+            <input placeholder="Cognome" value={f.cognome} onChange={e=>u("cognome",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}/>
+            <input type="tel" placeholder="Cellulare * (es. 333 1234567)" value={f.telefono} onChange={e=>u("telefono",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}/>
+            <input type="email" placeholder="Email (opzionale)" value={f.email} onChange={e=>u("email",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}/>
+            <select value={f.obiettivo} onChange={e=>u("obiettivo",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit"}}>
+              <option value="">Qual è il tuo obiettivo?</option>
+              <option>Rimettermi in forma in poco tempo ⏱️</option>
+              <option>Tonificare 💪</option>
+              <option>Combattere la ritenzione idrica 💧</option>
+              <option>Dimagrimento</option>
+              <option>Recupero post-infortunio</option>
+              <option>Altro</option>
+            </select>
+            <textarea placeholder="Note (opzionale)" rows={2} value={f.note} onChange={e=>u("note",e.target.value)}
+              style={{background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:14,fontFamily:"inherit",resize:"vertical"}}/>
+            {/* honeypot anti-bot */}
+            <input type="text" tabIndex={-1} autoComplete="off" value={f.honeypot} onChange={e=>u("honeypot",e.target.value)}
+              style={{position:"absolute",left:"-9999px",opacity:0,pointerEvents:"none"}} aria-hidden="true"/>
+            {error && <div style={{color:K.danger,fontSize:13,background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 12px"}}>{error}</div>}
+            <button onClick={invia} disabled={sending} style={{...B("gold"),padding:"14px",fontSize:14,marginTop:4}}>
+              {sending ? "Invio in corso..." : "🎯 Richiedi la prova gratuita"}
+            </button>
+            <div style={{fontSize:10,color:K.muted,textAlign:"center",marginTop:6,lineHeight:1.5}}>
+              Compilando il form acconsenti al trattamento dei dati per essere ricontattato.<br/>I tuoi dati non saranno condivisi con terzi.
+            </div>
+          </div>
+        </div>
+        <div style={{textAlign:"center",marginTop:24,fontSize:11,color:K.muted}}>
+          ⚡ Allenamento EMS · 🌀 Vacufit · 📊 BIA professionale
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── IMPOSTAZIONI ADMIN ─── */
 function Settings() {
   const [tab, setTab] = useState("templates");
@@ -1602,6 +1779,7 @@ function Settings() {
       <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
         {[
           ["templates","Messaggi WhatsApp"],
+          ["notifiche","Notifiche"],
           ["account","Account"],
         ].map(([k,lab])=>{
           const active = tab===k;
@@ -1617,12 +1795,68 @@ function Settings() {
         })}
       </div>
       {tab==="templates" && <MessageTemplates/>}
+      {tab==="notifiche" && <NotificheSettings/>}
       {tab==="account" && (
         <div style={C({padding:"20px",textAlign:"center"})}>
           <div style={{fontSize:13,color:K.mutedLight,marginBottom:8}}>Gestione account</div>
           <div style={{fontSize:11,color:K.muted}}>Sezione in arrivo — qui potrai modificare ragione sociale, P.IVA, dati di fatturazione.</div>
         </div>
       )}
+    </div>
+  );
+}
+
+function NotificheSettings() {
+  const [perm, setPerm] = useState(typeof Notification!=="undefined" ? Notification.permission : "default");
+  const supportato = typeof Notification !== "undefined";
+
+  const richiediPermesso = async () => {
+    if (!supportato) { alert("Il tuo browser non supporta le notifiche"); return; }
+    try {
+      const result = await Notification.requestPermission();
+      setPerm(result);
+      if (result === "granted") {
+        new Notification("✓ Notifiche attive", { body: "Riceverai un avviso ogni volta che arriva un nuovo lead." });
+      }
+    } catch(e) { alert("Errore: " + e.message); }
+  };
+
+  return (
+    <div>
+      <div style={C()}>
+        <div style={{fontWeight:600,fontSize:14,marginBottom:8,color:K.gold}}>🔔 Notifiche nuovi lead</div>
+        <div style={{fontSize:12,color:K.mutedLight,lineHeight:1.6,marginBottom:14}}>
+          Quando questa schermata è aperta in background, ricevi una notifica di sistema ogni volta che arriva un nuovo lead da Gmail o dalla landing.
+          {!supportato && <span style={{color:K.danger}}> Il tuo browser non supporta le notifiche.</span>}
+        </div>
+        <div style={{padding:"10px 12px",background:"#0e0e0e",border:`1px solid ${K.border}`,borderRadius:8,marginBottom:14}}>
+          <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>STATO ATTUALE</div>
+          <div style={{fontSize:13,color:perm==="granted"?K.success:(perm==="denied"?K.danger:K.mutedLight),fontWeight:600}}>
+            {perm==="granted"?"✓ Notifiche attive":perm==="denied"?"✗ Notifiche bloccate (cambia nelle impostazioni del browser)":"○ Non ancora autorizzate"}
+          </div>
+        </div>
+        {perm!=="granted" && perm!=="denied" && supportato && (
+          <button onClick={richiediPermesso} style={{...B("gold"),width:"100%",padding:"12px",fontSize:13}}>🔔 Abilita notifiche</button>
+        )}
+        {perm==="granted" && (
+          <button onClick={()=>new Notification("🧪 Test", {body:"Le notifiche funzionano correttamente!"})} style={{...B("ghost"),width:"100%",padding:"10px",fontSize:12}}>Manda notifica di test</button>
+        )}
+      </div>
+
+      <div style={C()}>
+        <div style={{fontWeight:600,fontSize:14,marginBottom:8,color:K.gold}}>🌐 Landing pubblica</div>
+        <div style={{fontSize:12,color:K.mutedLight,lineHeight:1.6,marginBottom:10}}>
+          Condividi questo link sui social, Instagram bio, biglietti da visita: i nuovi lead arriveranno direttamente nel pannello "Lead".
+        </div>
+        <div style={{padding:"10px 12px",background:K.goldBg,border:`1px solid ${K.goldBorder}`,borderRadius:8,fontSize:13,color:K.gold,wordBreak:"break-all",fontWeight:600,marginBottom:8}}>
+          {typeof window!=="undefined"?window.location.origin:""}/prova-gratuita
+        </div>
+        <button onClick={()=>{
+          const url=window.location.origin+"/prova-gratuita";
+          navigator.clipboard.writeText(url);
+          alert("Link copiato!");
+        }} style={{...B("ghost"),width:"100%",padding:"10px",fontSize:12}}>📋 Copia link</button>
+      </div>
     </div>
   );
 }
