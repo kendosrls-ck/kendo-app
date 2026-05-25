@@ -264,6 +264,7 @@ export default function App() {
                 {tab==="agenda"  && <Agenda/>}
                 {tab==="followup"&& <FollowUp/>}
                 {tab==="chat"    && <ChatAI piano="gold" isAdmin/>}
+                {tab==="settings"&& <Settings/>}
               </>
             ):(
               <>
@@ -964,9 +965,22 @@ function Dashboard({setTab}) {
   const quasi3=haPacchetto.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=3);
   const canc3=cList.filter(c=>(c?.cancellazioni||0)>=3);
 
-  // Regole BIA/sedute
+  // Regole BIA/sedute/scadenze/compleanni
   const oggiD=new Date();
   const giorniDa=(d)=>{if(!d)return Infinity;return Math.floor((oggiD-new Date(d))/(86400000));};
+  const giorniA=(d)=>{if(!d)return Infinity;return Math.floor((new Date(d)-oggiD)/(86400000));};
+  // Scadenze certificato medico (≤30gg, ed anche già scaduti)
+  const certMedicoScad=cList.filter(c=>{const g=giorniA(c?.scadenza_certificato_medico);return g!==Infinity&&g<=30;}).sort((a,b)=>new Date(a.scadenza_certificato_medico)-new Date(b.scadenza_certificato_medico));
+  const iscrizioneScad=cList.filter(c=>{const g=giorniA(c?.scadenza_iscrizione);return g!==Infinity&&g<=30;}).sort((a,b)=>new Date(a.scadenza_iscrizione)-new Date(b.scadenza_iscrizione));
+  // Compleanni di questo mese
+  const meseOggi=oggiD.getMonth();
+  const compleanniMese=cList.filter(c=>c?.data_nascita&&new Date(c.data_nascita).getMonth()===meseOggi).sort((a,b)=>new Date(a.data_nascita).getDate()-new Date(b.data_nascita).getDate());
+  // KPI rapidi
+  const ggFa=(n)=>{const d=new Date(oggiD);d.setDate(d.getDate()-n);return d.toISOString().split("T")[0];};
+  const seduteUltimaSett=0; // placeholder per ora, andrà collegato a prenotazioni passate
+  const totSedute=haPacchetto.reduce((s,c)=>s+(c.sedute_usate||0),0);
+  const totValore=cList.reduce((s,c)=>s+(parseFloat(c.valore_cliente)||0),0);
+  const debitiAttivi=cList.filter(c=>(parseFloat(c.posizione_debitoria)||0)>0).length;
   const biaDaFare=attivi.filter(c=>giorniDa(c.ultima_bia_data)>30);
   const feedback5=attivi.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))===5);
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
@@ -1170,11 +1184,73 @@ function Dashboard({setTab}) {
     </div>
   );
 
+  if(panel==="certMedico") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>🩺 Certificato medico in scadenza</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{certMedicoScad.length} clienti con certificato scaduto o in scadenza entro 30 giorni</div>
+      {certMedicoScad.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun certificato in scadenza 👍</div>:
+        certMedicoScad.map(c=>{const g=giorniA(c.scadenza_certificato_medico);const scaduto=g<0;return(
+          <div key={c.id} style={C({border:`1px solid ${scaduto?K.dangerBorder:K.goldBorder}`,background:scaduto?K.dangerBg:K.goldBg})}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:scaduto?K.danger:K.gold,marginTop:2}}>{scaduto?`Scaduto da ${Math.abs(g)}gg`:`Scade tra ${g}gg`} · {new Date(c.scadenza_certificato_medico).toLocaleDateString("it-IT")}</div>
+              </div>
+            </div>
+            {c.telefono&&<button onClick={()=>apriWa(c.telefono,`Ciao ${c.nome||""}! 🩺 Ti ricordo che il tuo certificato medico ${scaduto?"è scaduto":`scade tra ${g} giorni`}. Ti serve per continuare gli allenamenti — quando puoi rinnovarlo? 💪`)} style={{...B("success",{display:"block",width:"100%",padding:"8px",fontSize:12,textAlign:"center",cursor:"pointer"})}}>💬 WhatsApp — rinnovo certificato</button>}
+          </div>
+        );})}
+    </div>
+  );
+
+  if(panel==="iscrizione") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>📅 Iscrizione in scadenza</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{iscrizioneScad.length} clienti con iscrizione scaduta o in scadenza entro 30 giorni</div>
+      {iscrizioneScad.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessuna iscrizione in scadenza 👍</div>:
+        iscrizioneScad.map(c=>{const g=giorniA(c.scadenza_iscrizione);const scaduto=g<0;return(
+          <div key={c.id} style={C({border:`1px solid ${scaduto?K.dangerBorder:K.goldBorder}`,background:scaduto?K.dangerBg:K.goldBg})}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:scaduto?K.danger:K.gold,marginTop:2}}>{scaduto?`Scaduta da ${Math.abs(g)}gg`:`Scade tra ${g}gg`} · {new Date(c.scadenza_iscrizione).toLocaleDateString("it-IT")}</div>
+              </div>
+            </div>
+          </div>
+        );})}
+    </div>
+  );
+
+  if(panel==="compleanno") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>🎂 Compleanni del mese</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{compleanniMese.length} clienti compiono gli anni questo mese</div>
+      {compleanniMese.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun compleanno questo mese</div>:
+        compleanniMese.map(c=>{const g=new Date(c.data_nascita).getDate();const eta=oggiD.getFullYear()-new Date(c.data_nascita).getFullYear();return(
+          <div key={c.id} style={C()}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:6}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:600,color:K.gold,flexShrink:0}}>🎂</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:K.gold,marginTop:2}}>Giorno {g} · {eta} anni</div>
+              </div>
+            </div>
+            {c.telefono&&<button onClick={()=>apriWa(c.telefono,`Buon compleanno ${c.nome||""}! 🎉🎂 Ti aspettiamo presto in centro per festeggiarti con un allenamento speciale! 💪✨`)} style={{...B("gold",{display:"block",width:"100%",padding:"8px",fontSize:12,textAlign:"center",cursor:"pointer"})}}>🎁 Manda gli auguri</button>}
+          </div>
+        );})}
+    </div>
+  );
+
   /* ─── VISTA PRINCIPALE DASHBOARD ─── */
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
-      {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0)&&(
+      {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0||certMedicoScad.length>0||iscrizioneScad.length>0||compleanniMese.length>0)&&(
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ AZIONI DI OGGI</div>
           {rinnovo3.length>0&&(
@@ -1190,9 +1266,27 @@ function Dashboard({setTab}) {
             </div>
           )}
           {feedback5.length>0&&(
-            <div onClick={()=>setPanel("feedback5")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:0})}>
+            <div onClick={()=>setPanel("feedback5")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
               <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,color:K.gold,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,border:`1px solid ${K.goldBorder}`}}>💬</div>
               <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.gold}}>{feedback5.length} feedback da chiedere (5 sedute)</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Promemoria interno →</div></div>
+            </div>
+          )}
+          {certMedicoScad.length>0&&(
+            <div onClick={()=>setPanel("certMedico")} style={C({cursor:"pointer",border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.danger,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>🩺</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.danger}}>{certMedicoScad.length} certificati medici in scadenza</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Entro 30 giorni →</div></div>
+            </div>
+          )}
+          {iscrizioneScad.length>0&&(
+            <div onClick={()=>setPanel("iscrizione")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:K.goldBg,display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.gold,color:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>📅</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.gold}}>{iscrizioneScad.length} iscrizioni in scadenza</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Entro 30 giorni →</div></div>
+            </div>
+          )}
+          {compleanniMese.length>0&&(
+            <div onClick={()=>setPanel("compleanno")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:0})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,color:K.gold,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:16,border:`1px solid ${K.goldBorder}`}}>🎂</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.gold}}>{compleanniMese.length} compleanni questo mese</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Manda gli auguri →</div></div>
             </div>
           )}
         </div>
@@ -1238,6 +1332,20 @@ function Dashboard({setTab}) {
             <div style={{fontSize:10,color:K.goldDim}}>dettagli →</div>
           </div>
           <div style={{fontSize:11,color:K.muted,marginTop:2}}>aperti</div>
+        </div>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+        <div style={C({marginBottom:0})}>
+          <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>TOT. CLIENTI</div>
+          <div style={{fontSize:18,fontWeight:600,color:K.white}}>{cList.length}</div>
+        </div>
+        <div style={C({marginBottom:0})}>
+          <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>VALORE CRM</div>
+          <div style={{fontSize:18,fontWeight:600,color:K.gold}}>€{totValore.toFixed(0)}</div>
+        </div>
+        <div style={C({marginBottom:0,border:debitiAttivi>0?`1px solid ${K.dangerBorder}`:`1px solid ${K.border}`,background:debitiAttivi>0?K.dangerBg:K.card})}>
+          <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>CON DEBITI</div>
+          <div style={{fontSize:18,fontWeight:600,color:debitiAttivi>0?K.danger:K.muted}}>{debitiAttivi}</div>
         </div>
       </div>
       {quasi5.length>0&&(
@@ -1478,6 +1586,137 @@ function Clienti() {
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/* ─── IMPOSTAZIONI ADMIN ─── */
+function Settings() {
+  const [tab, setTab] = useState("templates");
+  return (
+    <div>
+      <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}>
+        <span style={{fontSize:22}}>⚙</span>
+        <span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>IMPOSTAZIONI</span>
+      </div>
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {[
+          ["templates","Messaggi WhatsApp"],
+          ["account","Account"],
+        ].map(([k,lab])=>{
+          const active = tab===k;
+          return (
+            <button key={k} onClick={()=>setTab(k)} style={{
+              flexShrink:0,
+              background: active ? K.goldBg : "transparent",
+              border: `1px solid ${active ? K.gold : K.border}`,
+              color: active ? K.gold : K.mutedLight,
+              borderRadius: 8, padding:"7px 14px", fontSize:12, cursor:"pointer", fontFamily:"inherit"
+            }}>{lab}</button>
+          );
+        })}
+      </div>
+      {tab==="templates" && <MessageTemplates/>}
+      {tab==="account" && (
+        <div style={C({padding:"20px",textAlign:"center"})}>
+          <div style={{fontSize:13,color:K.mutedLight,marginBottom:8}}>Gestione account</div>
+          <div style={{fontSize:11,color:K.muted}}>Sezione in arrivo — qui potrai modificare ragione sociale, P.IVA, dati di fatturazione.</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MessageTemplates() {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [sel, setSel] = useState(null);
+  const [corpo, setCorpo] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const load = () => {
+    setLoading(true);
+    supabase.from("message_templates").select("*").order("titolo")
+      .then(({data})=>{setList(data||[]);setLoading(false);});
+  };
+  useEffect(()=>{load();},[]);
+
+  useEffect(()=>{
+    if (sel) {
+      const t = list.find(x=>x.id===sel);
+      if (t) setCorpo(t.corpo || "");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sel]);
+
+  const salva = async () => {
+    if (!sel) return;
+    setSaving(true);
+    const { error } = await supabase.from("message_templates")
+      .update({ corpo, updated_at: new Date().toISOString() })
+      .eq("id", sel);
+    setSaving(false);
+    if (error) {
+      alert("Errore salvataggio: " + error.message);
+      return;
+    }
+    setList(p => p.map(t => t.id===sel ? {...t, corpo, updated_at: new Date().toISOString()} : t));
+    setSavedAt(new Date());
+    setTimeout(()=>setSavedAt(null), 3000);
+  };
+
+  if (loading) return <Spinner/>;
+
+  if (sel) {
+    const t = list.find(x=>x.id===sel);
+    if (!t) { setSel(null); return null; }
+    return (
+      <div>
+        <button onClick={()=>setSel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Tutti i messaggi</button>
+        <div style={C()}>
+          <div style={{fontWeight:600,fontSize:15,marginBottom:4,color:K.gold}}>{t.titolo}</div>
+          <div style={{fontSize:11,color:K.muted,marginBottom:14}}>{t.descrizione||"—"}</div>
+          {t.variabili && t.variabili.length>0 && (
+            <div style={{marginBottom:14,padding:"10px 12px",background:"#0e0e0e",border:`1px solid ${K.border}`,borderRadius:8}}>
+              <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1}}>VARIABILI DISPONIBILI</div>
+              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+                {t.variabili.map(v=>(
+                  <code key={v} style={{fontSize:11,padding:"3px 8px",background:K.goldBg,border:`1px solid ${K.goldBorder}`,borderRadius:6,color:K.gold}}>{"{"+v+"}"}</code>
+                ))}
+              </div>
+              <div style={{fontSize:10,color:K.muted,marginTop:8}}>Esempio: <code>{"{nome}"}</code> sarà sostituito automaticamente con il nome del cliente al momento dell'invio.</div>
+            </div>
+          )}
+          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>TESTO DEL MESSAGGIO</label>
+          <textarea value={corpo} onChange={e=>setCorpo(e.target.value)} rows={10}
+            style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"12px 14px",fontSize:13,fontFamily:"inherit",resize:"vertical",lineHeight:1.5}}/>
+          <div style={{display:"flex",gap:8,marginTop:12,alignItems:"center"}}>
+            <button onClick={salva} disabled={saving} style={{...B("gold",{flex:1,padding:"12px",fontSize:13})}}>{saving?"Salvataggio...":"💾 Salva modifiche"}</button>
+            {savedAt && <span style={{fontSize:11,color:K.success}}>✓ Salvato</span>}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{fontSize:12,color:K.mutedLight,marginBottom:14}}>
+        Modifica i messaggi WhatsApp che l'app invia automaticamente. Le variabili tra graffe <code style={{color:K.gold}}>{"{nome}"}</code> vengono compilate al volo con i dati del cliente.
+      </div>
+      {list.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun template configurato</div>:
+        list.map(t=>(
+          <div key={t.id} onClick={()=>setSel(t.id)} style={C({cursor:"pointer"})}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"start",marginBottom:6}}>
+              <div style={{fontWeight:600,fontSize:14,color:K.gold}}>{t.titolo}</div>
+              <span style={{fontSize:10,color:K.muted}}>{t.codice}</span>
+            </div>
+            {t.descrizione && <div style={{fontSize:11,color:K.muted,marginBottom:8}}>{t.descrizione}</div>}
+            <div style={{fontSize:12,color:K.mutedLight,fontStyle:"italic",lineHeight:1.4,maxHeight:60,overflow:"hidden",textOverflow:"ellipsis"}}>{(t.corpo||"").slice(0,150)}{(t.corpo||"").length>150?"…":""}</div>
+          </div>
+        ))
+      }
     </div>
   );
 }
