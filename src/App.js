@@ -921,8 +921,8 @@ function Dashboard({setTab}) {
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  const msgBia=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`)}`;
-  const msgRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`)}`;};
+  const msgBia=(c)=>`https://api.whatsapp.com/send?phone=39${cleanPhone(c?.telefono)}&text=${encodeURIComponent(`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`)}`;
+  const msgRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `https://api.whatsapp.com/send?phone=39${cleanPhone(c?.telefono)}&text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`)}`;};
 
   const getNome=(uid)=>{const c=cList.find(x=>x?.id===uid);return c?`${c.nome||""} ${c.cognome||""}`.trim():"Cliente";};
 
@@ -1017,7 +1017,7 @@ function Dashboard({setTab}) {
             {[["Motivo",fw.motivo],["Esito",fw.esito],["Prossima azione",fw.prossima_azione]].map(([l,v])=>v?(
               <div key={l} style={{fontSize:12,marginBottom:2}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
             ):null)}
-            {cl?.telefono&&<a href={`https://wa.me/39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:8,padding:"6px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
+            {cl?.telefono&&<a href={`https://api.whatsapp.com/send?phone=39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:8,padding:"6px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
           </div>
         );})}
       <button onClick={()=>setTab("followup")} style={{...B("outline"),width:"100%",marginTop:8,padding:12,fontSize:13}}>Gestisci follow-up →</button>
@@ -1353,7 +1353,7 @@ function Clienti() {
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>togliSeduta(c.id)} disabled={usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
             <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({usate}/{tot})</button>
-            {waPhone&&<a href={`https://wa.me/39${waPhone}?text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>💬</a>}
+            {waPhone&&<a href={`https://api.whatsapp.com/send?phone=39${waPhone}&text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>💬</a>}
           </div>
         </div>
       </div>
@@ -1593,7 +1593,7 @@ function FollowUp() {
           {[["Motivo",fw.motivo],["Esito",fw.esito],["Prossima azione",fw.prossima_azione]].map(([l,v])=>(
             <div key={l} style={{fontSize:12,marginBottom:3}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
           ))}
-          {cl?.telefono&&<a href={`https://wa.me/39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:10,padding:"7px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
+          {cl?.telefono&&<a href={`https://api.whatsapp.com/send?phone=39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:10,padding:"7px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
         </div>
       );})}
     </div>

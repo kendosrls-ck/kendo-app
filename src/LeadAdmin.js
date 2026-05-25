@@ -37,7 +37,7 @@ const waLink = (lead) => {
   if (!tel) return null;
   const nome = (lead?.nome || "").split(" ")[0];
   const text = `Buongiorno ${nome}! 😊 Sono Christian di Fit And Go Padova ⚡. Ti scrivo perché ho ricevuto la tua richiesta per la prova gratuita! 🎁\n\nPer organizzarla al meglio, posso chiederti quale obiettivo ti piacerebbe raggiungere? 🎯 (Ad esempio: rimetterti in forma in poco tempo ⏱️, tonificare 💪, o combattere la ritenzione idrica 💧?)\n\nCosì capiamo insieme se è più adatto a te l'allenamento EMS, il Vacufit o entrambi! 🏃‍♀️🔥`;
-  return `https://wa.me/39${tel}?text=${encodeURIComponent(text)}`;
+  return `https://api.whatsapp.com/send?phone=39${tel}&text=${encodeURIComponent(text)}`;
 };
 
 const STATI = ["nuovo", "contattato", "convertito", "scartato"];
