@@ -1956,64 +1956,256 @@ function MessageTemplates() {
 }
 
 /* ─── BIA CLIENTE (admin) ─── */
-function ClienteBia({clienteId}) {
-  const [bia,setBia]=useState(null);
-  const [showForm,setShowForm]=useState(false);
-  const [fb,setFb]=useState({peso:"",altezza:"",eta:"",grasso_perc:"",massa_muscolare:"",bmi:"",obiettivo:"",deficit:""});
-  const ub=(k,v)=>setFb(p=>({...p,[k]:v}));
+// Componente gestione BIA: lista storico, form di inserimento manuale, e AI Vision (foto/PDF).
+// Trigger su DB aggiorna ultima_bia_data/prossima_bia_data del cliente.
+function ClienteBia({clienteId, cliente}) {
+  const [storia, setStoria] = useState([]);
+  const [showForm, setShowForm] = useState(false);
+  const [showStoria, setShowStoria] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiNote, setAiNote] = useState("");
+  const emptyForm = {
+    data_rilevazione: new Date().toISOString().slice(0,10),
+    peso:"", altezza:"", eta:"",
+    grasso_perc:"", massa_grassa_kg:"", massa_muscolare_kg:"", acqua_perc:"",
+    bmi:"", metabolismo_basale:"", obiettivo:"", deficit:"", note:""
+  };
+  const [fb, setFb] = useState(emptyForm);
+  const ub = (k,v) => setFb(p => ({...p, [k]:v}));
 
+  // Calcolo BMI automatico
   useEffect(()=>{
-    if(!clienteId)return;
-    supabase.from("bia").select("*").eq("user_id",clienteId).order("created_at",{ascending:false}).limit(1).maybeSingle()
-      .then(({data,error})=>{if(!error)setBia(data);})
-      .catch(()=>setBia(null));
+    const p = parseFloat(fb.peso); const a = parseFloat(fb.altezza);
+    if (p>0 && a>0) {
+      const m = a>3 ? a/100 : a;
+      const bmi = (p/(m*m)).toFixed(1);
+      if (bmi !== fb.bmi) setFb(prev => ({...prev, bmi}));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fb.peso, fb.altezza]);
+
+  const carica = ()=>{
+    if (!clienteId) { setLoading(false); return; }
+    setLoading(true);
+    supabase.from("bia").select("*").eq("cliente_id", clienteId)
+      .order("data_rilevazione", {ascending:false})
+      .order("created_at", {ascending:false})
+      .then(({data})=>{ setStoria(data||[]); setLoading(false); });
+  };
+  useEffect(()=>{ carica();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[clienteId]);
 
-  const salvaBia=async()=>{
-    const payload={user_id:clienteId,peso:parseFloat(fb.peso),altezza:parseFloat(fb.altezza),eta:parseInt(fb.eta),grasso_perc:parseFloat(fb.grasso_perc),massa_muscolare:parseFloat(fb.massa_muscolare),bmi:parseFloat(fb.bmi),obiettivo:fb.obiettivo,deficit:parseInt(fb.deficit)||0};
-    const {data}=await supabase.from("bia").insert(payload).select().single();
-    if(data){setBia(data);setShowForm(false);}
+  const num = v => (v===""||v==null) ? null : parseFloat(v);
+  const int = v => (v===""||v==null) ? null : parseInt(v);
+
+  const salvaBia = async ()=>{
+    if (!fb.peso) { alert("Inserisci almeno il peso"); return; }
+    const payload = {
+      cliente_id: clienteId,
+      data_rilevazione: fb.data_rilevazione || new Date().toISOString().slice(0,10),
+      peso: num(fb.peso),
+      altezza: num(fb.altezza),
+      eta: int(fb.eta),
+      grasso_perc: num(fb.grasso_perc),
+      massa_grassa_kg: num(fb.massa_grassa_kg),
+      massa_muscolare_kg: num(fb.massa_muscolare_kg),
+      massa_muscolare: num(fb.massa_muscolare_kg),
+      acqua_perc: num(fb.acqua_perc),
+      bmi: num(fb.bmi),
+      metabolismo_basale: int(fb.metabolismo_basale),
+      obiettivo: fb.obiettivo||null,
+      deficit: int(fb.deficit) || 0,
+      note: fb.note||null,
+    };
+    const { data, error } = await supabase.from("bia").insert(payload).select().single();
+    if (error) { alert("Errore: " + error.message); return; }
+    if (data) { setStoria(p => [data, ...p]); setFb(emptyForm); setShowForm(false); setAiNote(""); }
   };
 
-  if(showForm) return (
+  const elimina = async (id)=>{
+    if (!window.confirm("Eliminare questa rilevazione?")) return;
+    await supabase.from("bia").delete().eq("id", id);
+    setStoria(p => p.filter(x => x.id !== id));
+  };
+
+  // AI VISION: carica foto/PDF e popola il form
+  const onFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { alert("File troppo grande (max 8MB)"); return; }
+    setAiLoading(true); setAiNote("");
+    try {
+      // legge il file in base64
+      const reader = new FileReader();
+      const base64Promise = new Promise((resolve, reject) => {
+        reader.onload = () => { const r = reader.result; const b64 = (r||"").split(",")[1]; resolve(b64); };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const fileBase64 = await base64Promise;
+      const r = await fetch("/api/bia-vision", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ fileBase64, mediaType: file.type })
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { alert("Errore IA: " + (j.error||r.status)); setAiLoading(false); return; }
+      const d = j.data || {};
+      setFb(prev => ({
+        ...prev,
+        peso: d.peso != null ? String(d.peso) : prev.peso,
+        altezza: d.altezza != null ? String(d.altezza) : prev.altezza,
+        eta: d.eta != null ? String(d.eta) : prev.eta,
+        grasso_perc: d.grasso_perc != null ? String(d.grasso_perc) : prev.grasso_perc,
+        massa_grassa_kg: d.massa_grassa_kg != null ? String(d.massa_grassa_kg) : prev.massa_grassa_kg,
+        massa_muscolare_kg: d.massa_muscolare_kg != null ? String(d.massa_muscolare_kg) : prev.massa_muscolare_kg,
+        acqua_perc: d.acqua_perc != null ? String(d.acqua_perc) : prev.acqua_perc,
+        bmi: d.bmi != null ? String(d.bmi) : prev.bmi,
+        metabolismo_basale: d.metabolismo_basale != null ? String(d.metabolismo_basale) : prev.metabolismo_basale,
+        obiettivo: d.obiettivo || prev.obiettivo,
+        note: d.note || prev.note,
+      }));
+      setAiNote("✓ Dati estratti — verifica i valori e salva");
+    } catch(err) {
+      alert("Errore: " + err.message);
+    }
+    setAiLoading(false);
+    e.target.value = "";
+  };
+
+  const fmtIT = s => s ? new Date(s).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
+  const bia = storia[0] || null;
+  const prev = storia[1] || null;
+  const diff = field => {
+    if (!bia||!prev||bia[field]==null||prev[field]==null) return null;
+    const d = bia[field] - prev[field];
+    if (Math.abs(d) < 0.05) return null;
+    const isFat = field === "grasso_perc";
+    const col = d>0 ? (isFat?K.danger:K.success) : (isFat?K.success:K.danger);
+    return <span style={{fontSize:10, color:col, marginLeft:4}}>{d>0?"+":""}{d.toFixed(1)}</span>;
+  };
+
+  if (loading) return <div style={C()}><div style={{fontSize:11,color:K.muted,letterSpacing:1}}>BIA</div><div style={{fontSize:12,color:K.muted,marginTop:6}}>Caricamento…</div></div>;
+
+  if (showForm) return (
     <div style={C()}>
-      <div style={{fontWeight:500,fontSize:13,marginBottom:12}}>INSERISCI DATI BIA</div>
-      {[["Peso (kg)","peso"],["Altezza (cm)","altezza"],["Età","eta"],["Grasso %","grasso_perc"],["Massa muscolare (kg)","massa_muscolare"],["BMI","bmi"],["Deficit kcal/gg","deficit"]].map(([l,k])=>(
-        <div key={k} style={{marginBottom:10}}>
-          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>{l}</label>
-          <input type="number" value={fb[k]} onChange={e=>ub(k,e.target.value)} placeholder={l}/>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontWeight:500,fontSize:13}}>NUOVA RILEVAZIONE BIA</div>
+        <button onClick={()=>{setShowForm(false);setFb(emptyForm);setAiNote("");}} style={B("ghost",{padding:"4px 10px",fontSize:11})}>Annulla</button>
+      </div>
+
+      {/* AI VISION UPLOAD */}
+      <div style={{padding:"12px",background:K.goldBg,border:`1px solid ${K.goldBorder}`,borderRadius:8,marginBottom:14}}>
+        <div style={{fontSize:11,color:K.gold,fontWeight:600,marginBottom:6,letterSpacing:1}}>🤖 IA — COMPILAZIONE AUTOMATICA</div>
+        <div style={{fontSize:11,color:K.mutedLight,marginBottom:10,lineHeight:1.5}}>
+          Carica una foto del referto bilancia/BIA o un PDF: l'IA estrae i numeri e compila il form per te.
         </div>
-      ))}
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>OBIETTIVO</label>
+        <label style={{...B("gold"),display:"block",textAlign:"center",cursor:aiLoading?"wait":"pointer",padding:"10px",fontSize:12,opacity:aiLoading?0.6:1}}>
+          {aiLoading ? "⏳ Analisi in corso..." : "📷 Carica foto o PDF"}
+          <input type="file" accept="image/*,application/pdf" onChange={onFileSelected} disabled={aiLoading} style={{display:"none"}}/>
+        </label>
+        {aiNote && <div style={{fontSize:11,color:K.success,marginTop:8,textAlign:"center"}}>{aiNote}</div>}
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Data rilevazione</label>
+        <input type="date" value={fb.data_rilevazione} onChange={e=>ub("data_rilevazione",e.target.value)}/>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+        {[
+          ["Peso (kg) *","peso","0.1"],
+          ["Altezza (cm)","altezza","0.5"],
+          ["Età","eta","1"],
+          ["BMI (auto)","bmi","0.1"],
+          ["Grasso %","grasso_perc","0.1"],
+          ["Massa grassa (kg)","massa_grassa_kg","0.1"],
+          ["Massa muscolare (kg)","massa_muscolare_kg","0.1"],
+          ["Acqua %","acqua_perc","0.1"],
+          ["Metab. basale (kcal)","metabolismo_basale","10"],
+          ["Deficit kcal/gg","deficit","10"],
+        ].map(([l,k,step])=>(
+          <div key={k}>
+            <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>{l}</label>
+            <input type="number" step={step} value={fb[k]} onChange={e=>ub(k,e.target.value)}/>
+          </div>
+        ))}
+      </div>
+      <div style={{marginTop:10}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Obiettivo</label>
         <select value={fb.obiettivo} onChange={e=>ub("obiettivo",e.target.value)}>
-          <option value="">Seleziona...</option>
-          <option>Dimagrimento</option><option>Massa muscolare</option><option>Tonificazione</option><option>Benessere</option>
+          <option value="">— Seleziona —</option>
+          <option>Dimagrimento</option><option>Tonificazione</option><option>Massa muscolare</option><option>Mantenimento</option><option>Benessere</option>
         </select>
       </div>
-      <div style={{display:"flex",gap:8}}>
-        <button onClick={salvaBia} style={{...B("gold"),flex:1,padding:"10px"}}>Salva BIA</button>
-        <button onClick={()=>setShowForm(false)} style={{...B("ghost"),padding:"10px"}}>Annulla</button>
+      <div style={{marginTop:10}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Note</label>
+        <textarea value={fb.note} onChange={e=>ub("note",e.target.value)} rows={2}
+          style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"8px 10px",fontSize:13,fontFamily:"inherit",resize:"vertical"}}/>
       </div>
+      <button onClick={salvaBia} style={{...B("gold"),width:"100%",padding:"12px",marginTop:14}}>💾 Salva BIA</button>
+    </div>
+  );
+
+  if (showStoria) return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontWeight:500,fontSize:13}}>STORICO BIA ({storia.length})</div>
+        <button onClick={()=>setShowStoria(false)} style={B("ghost",{padding:"4px 10px",fontSize:11})}>← Indietro</button>
+      </div>
+      {storia.length===0 ? <div style={{fontSize:12,color:K.muted}}>Nessuna BIA</div> :
+        storia.map(b => (
+          <div key={b.id} style={{background:"#0e0e0e",border:`1px solid ${K.border}`,borderRadius:8,padding:"10px",marginBottom:8}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}}>
+              <div style={{fontSize:13,fontWeight:600,color:K.gold}}>{fmtIT(b.data_rilevazione||b.created_at)}</div>
+              <button onClick={()=>elimina(b.id)} style={{background:"none",border:"none",color:K.muted,cursor:"pointer",fontSize:14}}>×</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:6,fontSize:11}}>
+              {b.peso!=null && <div><span style={{color:K.muted}}>Peso </span><span style={{color:K.white}}>{b.peso}kg</span></div>}
+              {b.bmi!=null && <div><span style={{color:K.muted}}>BMI </span><span style={{color:K.white}}>{b.bmi}</span></div>}
+              {b.grasso_perc!=null && <div><span style={{color:K.muted}}>Grasso </span><span style={{color:K.white}}>{b.grasso_perc}%</span></div>}
+              {b.massa_muscolare_kg!=null && <div><span style={{color:K.muted}}>Muscolo </span><span style={{color:K.white}}>{b.massa_muscolare_kg}kg</span></div>}
+              {b.acqua_perc!=null && <div><span style={{color:K.muted}}>Acqua </span><span style={{color:K.white}}>{b.acqua_perc}%</span></div>}
+              {b.metabolismo_basale!=null && <div><span style={{color:K.muted}}>Metab </span><span style={{color:K.white}}>{b.metabolismo_basale}</span></div>}
+            </div>
+            {b.obiettivo && <div style={{fontSize:11,marginTop:6,color:K.mutedLight}}>Obiettivo: <span style={{color:K.gold}}>{b.obiettivo}</span></div>}
+            {b.note && <div style={{fontSize:11,marginTop:4,color:K.muted,fontStyle:"italic"}}>{b.note}</div>}
+          </div>
+        ))
+      }
     </div>
   );
 
   return (
     <div style={C()}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
-        <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>DATI BIA</div>
-        <button onClick={()=>{if(bia)setFb({peso:bia.peso,altezza:bia.altezza,eta:bia.eta,grasso_perc:bia.grasso_perc,massa_muscolare:bia.massa_muscolare,bmi:bia.bmi,obiettivo:bia.obiettivo,deficit:bia.deficit});setShowForm(true);}} style={B("outline",{padding:"5px 10px",fontSize:11})}>
-          {bia?"Aggiorna":"+ Inserisci"}
-        </button>
+        <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>BIA {bia && `· ultima ${fmtIT(bia.data_rilevazione||bia.created_at)}`}</div>
+        <div style={{display:"flex",gap:6}}>
+          {storia.length>0 && <button onClick={()=>setShowStoria(true)} style={B("ghost",{padding:"5px 10px",fontSize:11})}>Storico ({storia.length})</button>}
+          <button onClick={()=>setShowForm(true)} style={B("gold",{padding:"5px 10px",fontSize:11})}>+ Nuova</button>
+        </div>
       </div>
-      {!bia?<div style={{fontSize:12,color:K.muted}}>Nessun dato BIA inserito</div>:(
-        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
-          {[["Peso",bia.peso+" kg"],["Altezza",bia.altezza+" cm"],["Grasso",bia.grasso_perc+"%"],["Muscolare",bia.massa_muscolare+" kg"],["BMI",bia.bmi],["Obiettivo",bia.obiettivo||"—"],["Deficit",bia.deficit+" kcal"]].map(([l,v])=>(
-            <div key={l} style={{background:K.surface,borderRadius:8,padding:"8px"}}>
+      {!bia ? <div style={{fontSize:12,color:K.muted}}>Nessuna rilevazione BIA</div> : (
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
+          {[
+            ["Peso", bia.peso!=null ? bia.peso+" kg" : null, diff("peso")],
+            ["BMI", bia.bmi||null, diff("bmi")],
+            ["Grasso", bia.grasso_perc!=null ? bia.grasso_perc+"%" : null, diff("grasso_perc")],
+            ["Muscolare", bia.massa_muscolare_kg!=null ? bia.massa_muscolare_kg+" kg" : (bia.massa_muscolare!=null ? bia.massa_muscolare+" kg" : null), diff("massa_muscolare_kg")],
+            ["Acqua", bia.acqua_perc!=null ? bia.acqua_perc+"%" : null, diff("acqua_perc")],
+            ["Metab.", bia.metabolismo_basale||null, null],
+          ].filter(r => r[1]!=null).map(([l,v,d])=>(
+            <div key={l} style={{background:"#0e0e0e",borderRadius:8,padding:"8px 10px",border:`1px solid ${K.border}`}}>
               <div style={{fontSize:10,color:K.muted,marginBottom:2}}>{l}</div>
-              <div style={{fontSize:13,fontWeight:500,color:K.gold}}>{v}</div>
+              <div style={{fontSize:13,fontWeight:600,color:K.gold}}>{v}{d}</div>
             </div>
           ))}
+        </div>
+      )}
+      {bia && bia.obiettivo && (
+        <div style={{fontSize:11,marginTop:10,color:K.mutedLight}}>
+          Obiettivo: <span style={{color:K.gold}}>{bia.obiettivo}</span>
         </div>
       )}
     </div>
