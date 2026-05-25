@@ -36,8 +36,7 @@ const waLink = (lead) => {
   const tel = cleanPhoneIT(lead?.cellulare || lead?.telefono_normalizzato);
   if (!tel) return null;
   const nome = (lead?.nome || "").split(" ")[0];
-  const fonte = lead?.fonte || "";
-  const text = `Ciao ${nome}! 👋 Sono di Kendo (Fit & Go Padova). Ti contatto perché hai richiesto informazioni${fonte?` (${fonte})`:""}.\n\nPossiamo fissare insieme una prima seduta gratuita di prova con EMS o Vacufit? Dimmi un orario comodo per te! 💪`;
+  const text = `Buongiorno ${nome}! 😊 Sono Christian di Fit And Go Padova ⚡. Ti scrivo perché ho ricevuto la tua richiesta per la prova gratuita! 🎁\n\nPer organizzarla al meglio, posso chiederti quale obiettivo ti piacerebbe raggiungere? 🎯 (Ad esempio: rimetterti in forma in poco tempo ⏱️, tonificare 💪, o combattere la ritenzione idrica 💧?)\n\nCosì capiamo insieme se è più adatto a te l'allenamento EMS, il Vacufit o entrambi! 🏃‍♀️🔥`;
   return `https://wa.me/39${tel}?text=${encodeURIComponent(text)}`;
 };
 
