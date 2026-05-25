@@ -32,12 +32,30 @@ const cleanPhoneIT = (t) => (t||"").replace(/[^0-9+]/g,"").replace(/^\+39/,"").r
 const fmtDate = (s) => s ? new Date(s).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
 const fmtDateTime = (s) => s ? new Date(s).toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
 
-const waLink = (lead) => {
-  const tel = cleanPhoneIT(lead?.cellulare || lead?.telefono_normalizzato);
-  if (!tel) return null;
+const waTel = (lead) => cleanPhoneIT(lead?.cellulare || lead?.telefono_normalizzato);
+const waMessage = (lead) => {
   const nome = (lead?.nome || "").split(" ")[0];
-  const text = `Buongiorno ${nome}! 😊 Sono Christian di Fit And Go Padova ⚡. Ti scrivo perché ho ricevuto la tua richiesta per la prova gratuita! 🎁\n\nPer organizzarla al meglio, posso chiederti quale obiettivo ti piacerebbe raggiungere? 🎯 (Ad esempio: rimetterti in forma in poco tempo ⏱️, tonificare 💪, o combattere la ritenzione idrica 💧?)\n\nCosì capiamo insieme se è più adatto a te l'allenamento EMS, il Vacufit o entrambi! 🏃‍♀️🔥`;
-  return `https://api.whatsapp.com/send?phone=39${tel}&text=${encodeURIComponent(text)}`;
+  return `Buongiorno ${nome}! 😊 Sono Christian di Fit And Go Padova ⚡. Ti scrivo perché ho ricevuto la tua richiesta per la prova gratuita! 🎁\n\nPer organizzarla al meglio, posso chiederti quale obiettivo ti piacerebbe raggiungere? 🎯 (Ad esempio: rimetterti in forma in poco tempo ⏱️, tonificare 💪, o combattere la ritenzione idrica 💧?)\n\nCosì capiamo insieme se è più adatto a te l'allenamento EMS, il Vacufit o entrambi! 🏃‍♀️🔥`;
+};
+// Copia il messaggio negli appunti e apre WhatsApp con la sola chat (senza testo nell'URL,
+// che altrimenti corromperebbe le emoji 4-byte UTF-8 su WhatsApp Desktop).
+// L'utente fa Ctrl+V e le emoji arrivano integre dal clipboard.
+const apriWA = async (lead) => {
+  const tel = waTel(lead);
+  if (!tel) return;
+  const text = waMessage(lead);
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text; ta.style.position="fixed"; ta.style.opacity="0";
+      document.body.appendChild(ta); ta.select();
+      try { document.execCommand("copy"); } catch(_){}
+      document.body.removeChild(ta);
+    }
+  } catch(_){}
+  window.open(`https://wa.me/39${tel}`, "_blank", "noopener,noreferrer");
 };
 
 const STATI = ["nuovo", "contattato", "convertito", "scartato"];
@@ -108,7 +126,7 @@ export default function LeadAdmin() {
   if (sel) {
     const l = leads.find(x => x.id === sel);
     if (!l) { setSel(null); return null; }
-    const wa = waLink(l);
+    const tel = waTel(l);
     const sc = STATO_COLORS[l.stato] || STATO_COLORS.nuovo;
 
     return (
@@ -143,11 +161,14 @@ export default function LeadAdmin() {
           <div style={{fontSize:13,color:K.mutedLight,whiteSpace:"pre-wrap"}}>{l.messaggio}</div>
         </div>}
 
-        {wa && <a href={wa} target="_blank" rel="noreferrer" onClick={()=>markWhatsappSent(l.id)}
-          style={{...B("success"),display:"block",textAlign:"center",textDecoration:"none",padding:"14px",fontSize:14,marginBottom:10,fontWeight:600}}>
-          💬 Apri WhatsApp con messaggio preimpostato
-        </a>}
-        {!wa && <div style={C({textAlign:"center",color:K.muted,fontSize:12,padding:"14px"})}>
+        {tel && <button onClick={async()=>{await apriWA(l); markWhatsappSent(l.id);}}
+          style={{...B("success"),display:"block",width:"100%",textAlign:"center",padding:"14px",fontSize:14,marginBottom:6,fontWeight:600,cursor:"pointer"}}>
+          💬 Copia messaggio e apri WhatsApp
+        </button>}
+        {tel && <div style={{fontSize:11,color:K.muted,textAlign:"center",marginBottom:10,padding:"0 8px"}}>
+          Il messaggio è copiato negli appunti. In WhatsApp incolla con <b>Ctrl+V</b> (PC) o tieni premuto sul campo testo (mobile).
+        </div>}
+        {!tel && <div style={C({textAlign:"center",color:K.muted,fontSize:12,padding:"14px"})}>
           ⚠️ Nessun numero di telefono valido per WhatsApp
         </div>}
 
@@ -218,7 +239,7 @@ export default function LeadAdmin() {
         </div>
       ) : filtered.map(l => {
         const sc = STATO_COLORS[l.stato] || STATO_COLORS.nuovo;
-        const wa = waLink(l);
+        const tel = waTel(l);
         return (
           <div key={l.id} onClick={()=>setSel(l.id)} style={C({cursor:"pointer",border:`1px solid ${sc.bd}`})}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
@@ -240,12 +261,12 @@ export default function LeadAdmin() {
             </div>
             {(l.cellulare || l.email) && (
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {l.cellulare && wa && (
-                  <a href={wa} target="_blank" rel="noreferrer"
-                     onClick={(e)=>{e.stopPropagation();markWhatsappSent(l.id);}}
-                     style={{...B("success",{flex:1,padding:"7px 10px",fontSize:11,textDecoration:"none",textAlign:"center"}),minWidth:0}}>
+                {l.cellulare && tel && (
+                  <button
+                     onClick={async(e)=>{e.stopPropagation(); await apriWA(l); markWhatsappSent(l.id);}}
+                     style={{...B("success",{flex:1,padding:"7px 10px",fontSize:11,textAlign:"center",cursor:"pointer"}),minWidth:0}}>
                     💬 WhatsApp
-                  </a>
+                  </button>
                 )}
                 {l.cellulare && (
                   <a href={`tel:${l.cellulare}`} onClick={e=>e.stopPropagation()}

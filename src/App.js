@@ -921,8 +921,28 @@ function Dashboard({setTab}) {
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  const msgBia=(c)=>`https://api.whatsapp.com/send?phone=39${cleanPhone(c?.telefono)}&text=${encodeURIComponent(`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`)}`;
-  const msgRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `https://api.whatsapp.com/send?phone=39${cleanPhone(c?.telefono)}&text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`)}`;};
+  // Testi dei messaggi WhatsApp (con emoji integre)
+  const textBia=(c)=>`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
+  const textRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;};
+  // Copia il messaggio negli appunti e apre WhatsApp con la sola chat.
+  // Mettere il testo dentro l'URL corrompe le emoji 4-byte UTF-8 su WhatsApp Desktop,
+  // mentre il clipboard le preserva. L'utente fa Ctrl+V (o long-press su mobile).
+  const apriWa = async (telefono, text) => {
+    const t = cleanPhone(telefono);
+    if (!t) return;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.value = text; ta.style.position="fixed"; ta.style.opacity="0";
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand("copy"); } catch(_){}
+        document.body.removeChild(ta);
+      }
+    } catch(_){}
+    window.open(`https://wa.me/39${t}`, "_blank", "noopener,noreferrer");
+  };
 
   const getNome=(uid)=>{const c=cList.find(x=>x?.id===uid);return c?`${c.nome||""} ${c.cognome||""}`.trim():"Cliente";};
 
@@ -994,8 +1014,8 @@ function Dashboard({setTab}) {
             <span style={{fontSize:11,color:K.muted}}>{c.sedute_usate}/{c.sedute_total}</span>
           </div>
           <div style={{display:"flex",gap:6}}>
-            {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>📲 Invita BIA</a>}
-            {c.telefono&&res<=3&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 Rinnovo</a>}
+            {c.telefono&&<button onClick={()=>apriWa(c.telefono,textBia(c))} style={{...B("success",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>📲 Invita BIA</button>}
+            {c.telefono&&res<=3&&<button onClick={()=>apriWa(c.telefono,textRinnovo(c))} style={{...B("danger",{flex:1,padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 Rinnovo</button>}
           </div>
         </div>
       );})}
@@ -1039,7 +1059,7 @@ function Dashboard({setTab}) {
                 <div style={{fontSize:11,color:K.muted,marginTop:2}}>Ultima BIA: {ult}{gg&&gg!==Infinity?` · ${gg}gg fa`:""}</div>
               </div>
             </div>
-            {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 WhatsApp — invito BIA</a>}
+            {c.telefono&&<button onClick={()=>apriWa(c.telefono,textBia(c))} style={{...B("success",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 WhatsApp — invito BIA</button>}
           </div>
         );})}
     </div>
@@ -1086,7 +1106,7 @@ function Dashboard({setTab}) {
               </div>
               <span style={Tag(K.danger,K.dangerBg,K.dangerBorder)}>{res} sed.</span>
             </div>
-            {c.telefono&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center",fontWeight:600})}}>💬 WhatsApp — proposta rinnovo</a>}
+            {c.telefono&&<button onClick={()=>apriWa(c.telefono,textRinnovo(c))} style={{...B("danger",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center",fontWeight:600})}}>💬 WhatsApp — proposta rinnovo</button>}
           </div>
         );})}
     </div>
@@ -1173,8 +1193,8 @@ function Dashboard({setTab}) {
                   <div style={{fontSize:12,color:K.muted}}>{c.pacchetto} · {res} sed. rimaste</div>
                 </div>
                 <div style={{display:"flex",gap:6}}>
-                  {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>📲 BIA</a>}
-                  {c.telefono&&res<=3&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>💬</a>}
+                  {c.telefono&&<button onClick={()=>apriWa(c.telefono,textBia(c))} style={{...B("success",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>📲 BIA</button>}
+                  {c.telefono&&res<=3&&<button onClick={()=>apriWa(c.telefono,textRinnovo(c))} style={{...B("danger",{padding:"6px 10px",fontSize:11,textDecoration:"none"})}}>💬</button>}
                 </div>
               </div>
             </div>
@@ -1353,7 +1373,7 @@ function Clienti() {
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>togliSeduta(c.id)} disabled={usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
             <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({usate}/{tot})</button>
-            {waPhone&&<a href={`https://api.whatsapp.com/send?phone=39${waPhone}&text=${encodeURIComponent(waText)}`} target="_blank" rel="noreferrer" style={{...B("success",{padding:"10px 14px",fontSize:13,textDecoration:"none",display:"flex",alignItems:"center"})}}>💬</a>}
+            {waPhone&&<button onClick={()=>apriWa(waPhone,waText)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",cursor:"pointer"})}}>💬</button>}
           </div>
         </div>
       </div>
