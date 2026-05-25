@@ -14,19 +14,16 @@
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
     <title>Kendo - Fitness &amp; Benessere</title>
+    <style>
+      html, body { background:#080808 !important; color:#F5F5F5; margin:0; padding:0; }
+      #root { background:#080808; min-height:100vh; }
+      #kendo-pre-loader { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; background:#080808; z-index:9999; }
+      #kendo-pre-loader .ring { width:36px; height:36px; border:3px solid #1e1e1e; border-top-color:#D4A843; border-radius:50%; animation:spin 0.8s linear infinite; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+    </style>
   </head>
   <body class="notranslate">
     <noscript>Per usare Kendo devi abilitare JavaScript nel tuo browser.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
-
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
-
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
+    <div id="root"><div id="kendo-pre-loader"><div class="ring"></div></div></div>
   </body>
 </html>

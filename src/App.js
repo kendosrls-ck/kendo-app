@@ -118,16 +118,33 @@ function StatBox({label,value,sub,color}) {
 
 /* ─── MAIN APP ─── */
 export default function App() {
-  // All'avvio: se esiste una passkey, mostriamo il gate biometrico
-  const initialScreen = (typeof window !== "undefined" && isBiometricSupported() && hasEnrolledPasskey())
-    ? "biolock" : "login";
-  const [screen,setScreen]=useState(initialScreen);
+  const [screen,setScreen]=useState("loading");
   const [role,setRole]=useState("user");
   const [tab,setTab]=useState("home");
   const [piano,setPiano]=useState("basic");
   const [currentUser,setCurrentUser]=useState(null);
   const [profile,setProfile]=useState(null);
   const [chk,setChk]=useState({diet:false,gym:false});
+
+  useEffect(()=>{
+    (async()=>{
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data: prof } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+          setRole(prof?.is_admin ? "admin" : "user");
+          setProfile(prof);
+          setCurrentUser(user);
+          setPiano(prof?.piano||"basic");
+          setTab("home");
+          setScreen("app");
+          return;
+        }
+      } catch(e){}
+      if (isBiometricSupported() && hasEnrolledPasskey()) setScreen("biolock");
+      else setScreen("login");
+    })();
+  },[]);
 
   const userNav=[{id:"home",icon:"○",label:"Home"},{id:"prenota",icon:"◷",label:"Prenota"},{id:"bia",icon:"◈",label:"BIA"},{id:"dieta",icon:"◉",label:"Dieta"},{id:"chat",icon:"◎",label:"AI"}];
   const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"chat",icon:"◎",label:"AI"}];
@@ -169,6 +186,7 @@ export default function App() {
     setScreen("app"); // override: salta enroll se gia' siamo passati di li'
   };
 
+  if(screen==="loading") return <><style>{gs}</style><div style={{minHeight:"100vh",background:K.black,display:"flex",alignItems:"center",justifyContent:"center"}}><Spinner/></div></>;
   if(screen==="biolock") return <><style>{gs}</style><BiometricUnlock onUnlocked={handleBiometricUnlock} onUsePassword={()=>setScreen("login")}/></>;
   if(screen==="bioenroll") return <><style>{gs}</style><BiometricEnrollPrompt userEmail={currentUser?.email||profile?.email||""} onDone={()=>setScreen("app")}/></>;
   if(screen==="login") return <><style>{gs}</style><LoginScreen onLogin={handleLogin} onReg={()=>setScreen("reg")} onAdminReg={()=>setScreen("adminreg")}/></>;
