@@ -930,17 +930,21 @@ function Dashboard({setTab}) {
   const apriWa = async (telefono, text) => {
     const t = cleanPhone(telefono);
     if (!t) return;
+    let copied = false;
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
         await navigator.clipboard.writeText(text);
+        copied = true;
       } else {
         const ta = document.createElement("textarea");
         ta.value = text; ta.style.position="fixed"; ta.style.opacity="0";
         document.body.appendChild(ta); ta.select();
-        try { document.execCommand("copy"); } catch(_){}
+        try { copied = document.execCommand("copy"); } catch(_){}
         document.body.removeChild(ta);
       }
     } catch(_){}
+    if (copied) alert("Messaggio copiato negli appunti.\n\nOra si apre WhatsApp: clicca nella casella 'Scrivi un messaggio' in basso, premi Ctrl+V per incollare, poi invia.");
+    else alert("Non sono riuscito a copiare il messaggio. Apri WhatsApp e scrivilo a mano.");
     window.open(`https://wa.me/39${t}`, "_blank", "noopener,noreferrer");
   };
 
