@@ -80,17 +80,19 @@ const fmtAge = d => { const b=new Date(d),n=new Date(); let a=n.getFullYear()-b.
 const Logo = ({size=36}) => (
   <svg width={size} height={size*1.25} viewBox="0 0 200 250" xmlns="http://www.w3.org/2000/svg">
     <g fill={K.gold}>
-      <path d="M60 130 Q58 100 60 80 Q65 55 80 45 Q90 38 100 38 Q110 38 120 45 Q135 55 140 80 Q142 100 140 130 Q130 138 100 140 Q70 138 60 130Z"/>
-      <ellipse cx="100" cy="44" rx="18" ry="14"/>
-      <path d="M72 60 Q55 40 42 18 Q38 10 40 6 Q44 4 48 10 Q58 28 70 50 Q73 55 74 62Z"/>
-      <path d="M40 6 Q36 2 38 8 Q40 14 44 18 Q42 12 40 6Z"/>
-      <path d="M128 60 Q145 40 158 18 Q162 10 160 6 Q156 4 152 10 Q142 28 130 50 Q127 55 126 62Z"/>
-      <path d="M160 6 Q164 2 162 8 Q160 14 156 18 Q158 12 160 6Z"/>
-      <path d="M62 118 Q48 122 36 132 Q30 138 32 144 Q36 148 42 144 Q54 136 66 126Z"/>
-      <path d="M32 144 Q28 150 34 150 Q40 148 44 144 Q38 146 32 144Z"/>
-      <path d="M138 118 Q152 122 164 132 Q170 138 168 144 Q164 148 158 144 Q146 136 134 126Z"/>
-      <path d="M168 144 Q172 150 166 150 Q160 148 156 144 Q162 146 168 144Z"/>
-      <text x="100" y="238" textAnchor="middle" fontSize="28" fontFamily="Georgia,serif" letterSpacing="6" fill={K.gold}>KENDO</text>
+      {/* corno sinistro (inclinato verso l'esterno) */}
+      <path d="M62 110 L48 18 L70 8 L80 95 Z"/>
+      {/* corno centrale (verticale, più alto) */}
+      <path d="M92 105 L96 8 L100 0 L104 8 L108 105 Z"/>
+      {/* corno destro (inclinato verso l'esterno) */}
+      <path d="M138 110 L152 18 L130 8 L120 95 Z"/>
+      {/* base elmo a forma di V/Y centrale */}
+      <path d="M70 100 L100 150 L130 100 L120 90 L100 120 L80 90 Z"/>
+      {/* gamba sinistra a L invertito */}
+      <path d="M55 130 L40 145 L40 200 L65 200 L65 165 L75 155 Z"/>
+      {/* gamba destra a L invertito (specchio) */}
+      <path d="M145 130 L160 145 L160 200 L135 200 L135 165 L125 155 Z"/>
+      <text x="100" y="240" textAnchor="middle" fontSize="34" fontFamily="Georgia,serif" letterSpacing="8" fill={K.gold} fontWeight="600">KENDO</text>
     </g>
   </svg>
 );
