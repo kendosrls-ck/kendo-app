@@ -44,22 +44,25 @@ const apriWA = async (lead) => {
   const tel = waTel(lead);
   if (!tel) return;
   const text = waMessage(lead);
-  let copied = false;
+  // Backup in clipboard
   try {
     if (navigator.clipboard && navigator.clipboard.writeText) {
       await navigator.clipboard.writeText(text);
-      copied = true;
     } else {
       const ta = document.createElement("textarea");
       ta.value = text; ta.style.position="fixed"; ta.style.opacity="0";
       document.body.appendChild(ta); ta.select();
-      try { copied = document.execCommand("copy"); } catch(_){}
+      try { document.execCommand("copy"); } catch(_){}
       document.body.removeChild(ta);
     }
   } catch(_){}
-  if (copied) alert("Messaggio copiato negli appunti.\n\nOra si apre WhatsApp: clicca nella casella 'Scrivi un messaggio' in basso, premi Ctrl+V per incollare, poi invia.");
-  else alert("Non sono riuscito a copiare il messaggio. Apri WhatsApp e scrivilo a mano.");
-  window.open(`https://wa.me/39${tel}`, "_blank", "noopener,noreferrer");
+  // Mobile -> wa.me (no bug emoji su app mobile)
+  // Desktop -> web.whatsapp.com (browser, gestisce UTF-8 nei params correttamente)
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+  const url = isMobile
+    ? `https://wa.me/39${tel}?text=${encodeURIComponent(text)}`
+    : `https://web.whatsapp.com/send?phone=39${tel}&text=${encodeURIComponent(text)}`;
+  window.open(url, "_blank", "noopener,noreferrer");
 };
 
 const STATI = ["nuovo", "contattato", "convertito", "scartato"];
@@ -167,10 +170,10 @@ export default function LeadAdmin() {
 
         {tel && <button onClick={async()=>{await apriWA(l); markWhatsappSent(l.id);}}
           style={{...B("success"),display:"block",width:"100%",textAlign:"center",padding:"14px",fontSize:14,marginBottom:6,fontWeight:600,cursor:"pointer"}}>
-          💬 Copia messaggio e apri WhatsApp
+          💬 Apri WhatsApp con messaggio precompilato
         </button>}
         {tel && <div style={{fontSize:11,color:K.muted,textAlign:"center",marginBottom:10,padding:"0 8px"}}>
-          Il messaggio è copiato negli appunti. In WhatsApp incolla con <b>Ctrl+V</b> (PC) o tieni premuto sul campo testo (mobile).
+          Si apre WhatsApp Web con il messaggio già pronto. Se non compare, il testo è anche negli appunti: incolla con Ctrl+V.
         </div>}
         {!tel && <div style={C({textAlign:"center",color:K.muted,fontSize:12,padding:"14px"})}>
           ⚠️ Nessun numero di telefono valido per WhatsApp
