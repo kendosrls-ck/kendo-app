@@ -1029,7 +1029,7 @@ function Dashboard({setTab}) {
     };
     const check = async () => {
       const [{data: lLeads}, {data: lPren}] = await Promise.all([
-        supabase.from("leads").select("id,nome,cognome,cellulare,fonte").eq("stato","nuovo").order("created_at",{ascending:false}).limit(20),
+        supabase.from("leads").select("id,nome,cognome,cellulare,fonte,letto").eq("stato","nuovo").eq("letto",false).order("created_at",{ascending:false}).limit(20),
         supabase.from("prenotazioni").select("id,user_id,data,ora,tipo").eq("stato","confermata").gte("data", new Date().toISOString().split("T")[0]).order("created_at",{ascending:false}).limit(20),
       ]);
       if (!isMounted) return;

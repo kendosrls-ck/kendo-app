@@ -83,7 +83,7 @@ const STATO_COLORS = {
 export default function LeadAdmin() {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("nuovo");
+  const [filter, setFilter] = useState("nonletti");
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState(null);
   const [savingId, setSavingId] = useState(null);
@@ -118,6 +118,26 @@ export default function LeadAdmin() {
     await updateStato(id, "contattato", { whatsapp_inviato: true, whatsapp_inviato_at: new Date().toISOString() });
   };
 
+  const apriDettaglio = async (id) => {
+    setSel(id);
+    // Marca come letto se non lo era
+    const l = leads.find(x => x.id === id);
+    if (l && !l.letto) {
+      const patch = { letto: true, letto_at: new Date().toISOString() };
+      await supabase.from("leads").update(patch).eq("id", id);
+      setLeads(prev => prev.map(x => x.id === id ? { ...x, ...patch } : x));
+    }
+  };
+
+  const segnaTuttiLetti = async () => {
+    if (!window.confirm("Segnare TUTTI i lead non letti come letti?")) return;
+    const nonLetti = leads.filter(l => !l.letto).map(l => l.id);
+    if (nonLetti.length === 0) return;
+    const at = new Date().toISOString();
+    await supabase.from("leads").update({ letto: true, letto_at: at }).in("id", nonLetti);
+    setLeads(prev => prev.map(l => nonLetti.includes(l.id) ? { ...l, letto: true, letto_at: at } : l));
+  };
+
   if (loading) return (
     <div style={{display:"flex",justifyContent:"center",padding:"4rem"}}>
       <div style={{width:32,height:32,border:`3px solid ${K.border}`,borderTop:`3px solid ${K.gold}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
@@ -126,9 +146,14 @@ export default function LeadAdmin() {
   );
 
   const counts = STATI.reduce((acc, s) => { acc[s] = leads.filter(l => l.stato === s).length; return acc; }, {});
+  counts.nonletti = leads.filter(l => !l.letto).length;
 
   const filtered = leads
-    .filter(l => filter === "tutti" || l.stato === filter)
+    .filter(l => {
+      if (filter === "tutti") return true;
+      if (filter === "nonletti") return !l.letto;
+      return l.stato === filter;
+    })
     .filter(l => {
       if (!search) return true;
       const q = search.toLowerCase();
@@ -210,19 +235,23 @@ export default function LeadAdmin() {
   }
 
   /* ─── LISTA LEAD ─── */
+  const nonLettiCount = leads.filter(l => !l.letto).length;
   return (
     <div>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
         <div>
-          <div style={{fontWeight:600,fontSize:16}}>Lead ({leads.length})</div>
+          <div style={{fontWeight:600,fontSize:16}}>Lead ({leads.length}){nonLettiCount>0 && <span style={{color:K.gold,marginLeft:8,fontSize:13}}>· {nonLettiCount} da leggere</span>}</div>
           <div style={{fontSize:12,color:K.muted,marginTop:2}}>Contatti dalle campagne, sito, Gmail</div>
         </div>
-        <button onClick={load} style={B("ghost",{padding:"6px 10px",fontSize:11})}>↻ Aggiorna</button>
+        <div style={{display:"flex",gap:6}}>
+          {nonLettiCount>0 && <button onClick={segnaTuttiLetti} style={B("ghost",{padding:"6px 10px",fontSize:11})}>✓ Tutti letti</button>}
+          <button onClick={load} style={B("ghost",{padding:"6px 10px",fontSize:11})}>↻ Aggiorna</button>
+        </div>
       </div>
 
       {/* Filtri stato */}
       <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:4}}>
-        {[["nuovo","Nuovi"],["contattato","Contattati"],["convertito","Convertiti"],["scartato","Scartati"],["tutti","Tutti"]].map(([k,lab])=>{
+        {[["nonletti","Da leggere"],["nuovo","Nuovi"],["contattato","Contattati"],["convertito","Convertiti"],["scartato","Scartati"],["tutti","Tutti"]].map(([k,lab])=>{
           const n = k === "tutti" ? leads.length : (counts[k] || 0);
           const active = filter === k;
           return (
@@ -255,14 +284,18 @@ export default function LeadAdmin() {
         const sc = STATO_COLORS[l.stato] || STATO_COLORS.nuovo;
         const tel = waTel(l);
         return (
-          <div key={l.id} onClick={()=>setSel(l.id)} style={C({cursor:"pointer",border:`1px solid ${sc.bd}`})}>
+          <div key={l.id} onClick={()=>apriDettaglio(l.id)} style={C({cursor:"pointer",border:`1px solid ${sc.bd}`,position:"relative"})}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
               <div style={{
                 width:36,height:36,borderRadius:"50%",
                 background:sc.bg,border:`1px solid ${sc.bd}`,
                 display:"flex",alignItems:"center",justifyContent:"center",
-                fontSize:12,fontWeight:600,color:sc.fg,flexShrink:0
-              }}>{(l.nome||"?")[0]}{(l.cognome||"?")[0]}</div>
+                fontSize:12,fontWeight:600,color:sc.fg,flexShrink:0,
+                position:"relative"
+              }}>
+                {(l.nome||"?")[0]}{(l.cognome||"?")[0]}
+                {!l.letto && <div style={{position:"absolute",top:-2,right:-2,width:10,height:10,borderRadius:"50%",background:K.gold,border:`2px solid ${K.black}`}}/>}
+              </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                   {l.nome||""} {l.cognome||""}
