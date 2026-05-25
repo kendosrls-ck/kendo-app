@@ -326,7 +326,7 @@ function RegScreen({onBack, onDone}) {
   const [loading,setLoading]=useState(false);
   const [error,setError]=useState("");
   const [success,setSuccess]=useState(false);
-  const [f,setF]=useState({nome:"",cognome:"",email:"",password:"",peso:"",altezza:"",obiettivo:""});
+  const [f,setF]=useState({nome:"",cognome:"",email:"",telefono:"",password:"",peso:"",altezza:"",obiettivo:""});
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
 
   const registra = async () => {
@@ -342,6 +342,25 @@ function RegScreen({onBack, onDone}) {
           email:f.email, piano:sel, pacchetto:"EMS",
           sedute_total:10, sedute_usate:0, cancellazioni:0, is_admin:false, tipo_account:"cliente"
         });
+        try {
+          const emailMatch = f.email?.trim().toLowerCase();
+          const telDigits = (f.telefono||"").replace(/[^0-9]/g,"").replace(/^39/,"");
+          let match = null;
+          if (emailMatch) {
+            const {data:c} = await supabase.from("clienti").select("id")
+              .ilike("email", emailMatch).is("user_id", null).limit(1).maybeSingle();
+            if (c) match = c;
+          }
+          if (!match && telDigits) {
+            const {data:c} = await supabase.from("clienti").select("id")
+              .ilike("telefono", "%"+telDigits).is("user_id", null).limit(1).maybeSingle();
+            if (c) match = c;
+          }
+          if (match) {
+            await supabase.from("clienti").update({user_id:data.user.id}).eq("id", match.id);
+            await supabase.from("profiles").update({cliente_id:match.id}).eq("id", data.user.id);
+          }
+        } catch(e){}
         const pesoN=parseFloat(f.peso); const altN=parseFloat(f.altezza);
         if(!isNaN(pesoN)&&!isNaN(altN)&&altN>0){
           const bmi=parseFloat((pesoN/Math.pow(altN/100,2)).toFixed(1));
@@ -377,7 +396,7 @@ function RegScreen({onBack, onDone}) {
       <div style={{fontSize:18,fontWeight:600,marginBottom:4}}>Crea account</div>
       <div style={{fontSize:12,color:K.muted,marginBottom:20}}>Unisciti a Kendo</div>
       {error&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{error}</div>}
-      {[["Nome *","nome","text"],["Cognome *","cognome","text"],["Email *","email","email"],["Password *","password","password"],["Peso (kg)","peso","number"],["Altezza (cm)","altezza","number"]].map(([l,k,t])=>(
+      {[["Nome *","nome","text"],["Cognome *","cognome","text"],["Email *","email","email"],["Telefono","telefono","tel"],["Password *","password","password"],["Peso (kg)","peso","number"],["Altezza (cm)","altezza","number"]].map(([l,k,t])=>(
         <div key={k} style={{marginBottom:12}}>
           <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
           <input type={t} value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={l.replace(" *","")}/>
@@ -517,9 +536,8 @@ function AdminRegScreen({onBack, onDone}) {
 /* ─── HOME UTENTE ─── */
 function HomeUser({piano, profile, chk, setChk}) {
   const [pren,setPren]=useState([]);
+  const [cliente,setCliente]=useState(null);
   const p=PIANI.find(x=>x.id===piano)||PIANI[0];
-  const res=Math.max(0,(profile?.sedute_total||0)-(profile?.sedute_usate||0));
-  if(!profile)return <Spinner/>;
 
   useEffect(()=>{
     if(!profile?.id)return;
@@ -528,16 +546,34 @@ function HomeUser({piano, profile, chk, setChk}) {
       .eq("user_id",profile.id).eq("stato","confermata").gte("data",oggi)
       .order("data").order("ora").limit(1)
       .then(({data})=>setPren(data||[]));
+    supabase.from("clienti").select("*").eq("user_id",profile.id).maybeSingle()
+      .then(({data,error})=>{if(!error&&data)setCliente(data);})
+      .catch(()=>{});
   },[profile]);
 
+  if(!profile)return <Spinner/>;
+
+  const seduteTot   = cliente?.sedute_total ?? profile?.sedute_total ?? 0;
+  const seduteUsate = cliente?.sedute_usate ?? profile?.sedute_usate ?? 0;
+  const res         = Math.max(0, seduteTot - seduteUsate);
+  const pacchetto   = cliente?.pacchetto ?? profile?.pacchetto ?? "—";
+  const fmtD        = (d)=>d?new Date(d).toLocaleDateString("it-IT"):"—";
   const prox=pren[0];
   return (
     <div>
+      {cliente&&<div style={C({background:K.successBg,border:`1px solid ${K.successBorder}`,marginBottom:10})}>
+        <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>SCHEDA COLLEGATA</div>
+        <div style={{fontSize:13,color:K.success,fontWeight:500}}>✓ Ciao {cliente.nome}! La tua scheda Fit & Go è collegata.</div>
+        {cliente.scadenza_iscrizione&&<div style={{fontSize:11,color:K.mutedMid,marginTop:4}}>Iscrizione scade il {fmtD(cliente.scadenza_iscrizione)}</div>}
+      </div>}
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
         <StatBox label="Sedute" value={res} sub="rimaste" color={res<=3?K.danger:K.gold}/>
         <StatBox label="Piano" value={p?.name||"—"} sub="attivo" color={p?.color}/>
-        <StatBox label="Pacchetto" value={profile?.pacchetto||"—"} sub="in corso" color="#9B8FFF"/>
-        <StatBox label="Cancellazioni" value={profile?.cancellazioni||0} sub="questo mese" color={profile?.cancellazioni>=3?K.danger:K.mutedMid}/>
+        <StatBox label="Pacchetto" value={pacchetto} sub="in corso" color="#9B8FFF"/>
+        {cliente?.ultima_bia_data
+          ? <StatBox label="Ultima BIA" value={fmtD(cliente.ultima_bia_data)} sub="rilevazione" color={K.info}/>
+          : <StatBox label="Cancellazioni" value={profile?.cancellazioni||0} sub="questo mese" color={profile?.cancellazioni>=3?K.danger:K.mutedMid}/>
+        }
       </div>
       {prox&&<div style={C({border:`1px solid ${K.goldBorder}`,background:K.goldBg,marginBottom:10})}>
         <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>PROSSIMA SESSIONE</div>
@@ -852,15 +888,23 @@ function Dashboard({setTab}) {
 
   if(loading)return <Spinner/>;
 
-  const cList=clienti||[];
+  const cList=(clienti||[]).filter(c=>c?.status_crm==="CLIENTE ATTIVO"||c?.status_crm==="CLIENTE STAND BY"||!c?.status_crm);
   const attivi=cList.filter(c=>(c?.sedute_usate||0)<(c?.sedute_total||0));
-  const quasi5=cList.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=5);
-  const quasi3=cList.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=3);
+  const haPacchetto=cList.filter(c=>(c?.sedute_total||0)>0);
+  const quasi5=haPacchetto.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=5);
+  const quasi3=haPacchetto.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))<=3);
   const canc3=cList.filter(c=>(c?.cancellazioni||0)>=3);
 
+  // Regole BIA/sedute
+  const oggiD=new Date();
+  const giorniDa=(d)=>{if(!d)return Infinity;return Math.floor((oggiD-new Date(d))/(86400000));};
+  const biaDaFare=attivi.filter(c=>giorniDa(c.ultima_bia_data)>30);
+  const feedback5=attivi.filter(c=>((c?.sedute_total||0)-(c?.sedute_usate||0))===5);
+  const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
+
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  const msgBia=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 👋 Ti ricordiamo che hai ancora sessioni disponibili. Ti invitiamo a fissare un appuntamento BIA per monitorare i tuoi progressi. — Team Kendo`)}`;
-  const msgRinnovo=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Ti mancano solo ${(c?.sedute_total||0)-(c?.sedute_usate||0)} sedute. Puoi rinnovare il pacchetto con uno sconto riservato a te! — Team Kendo`)}`;
+  const msgBia=(c)=>`https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`)}`;
+  const msgRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `https://wa.me/39${cleanPhone(c?.telefono)}?text=${encodeURIComponent(`Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`)}`;};
 
   const getNome=(uid)=>{const c=cList.find(x=>x?.id===uid);return c?`${c.nome||""} ${c.cognome||""}`.trim():"Cliente";};
 
@@ -962,10 +1006,101 @@ function Dashboard({setTab}) {
     </div>
   );
 
+  if(panel==="bia") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>🩺 BIA da fare</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{biaDaFare.length} clienti senza BIA da più di 30 giorni</div>
+      {biaDaFare.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Tutti in regola 👍</div>:
+        biaDaFare.map(c=>{const gg=c.ultima_bia_data?giorniDa(c.ultima_bia_data):null;const ult=c.ultima_bia_data?new Date(c.ultima_bia_data).toLocaleDateString("it-IT"):"mai";return(
+          <div key={c.id} style={C({border:`1px solid ${K.infoBorder||"#102030"}`,background:K.infoBg||"#08101e"})}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2}}>Ultima BIA: {ult}{gg&&gg!==Infinity?` · ${gg}gg fa`:""}</div>
+              </div>
+            </div>
+            {c.telefono&&<a href={msgBia(c)} target="_blank" rel="noreferrer" style={{...B("success",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center"})}}>💬 WhatsApp — invito BIA</a>}
+          </div>
+        );})}
+    </div>
+  );
+
+  if(panel==="feedback5") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>💬 Feedback percorso</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{feedback5.length} clienti a 5 sedute residue · <span style={{color:K.gold}}>promemoria interno</span></div>
+      <div style={C({background:"#0e0e0e",border:`1px solid ${K.borderMid}`,marginBottom:14})}>
+        <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:6}}>NOTA</div>
+        <div style={{fontSize:12,color:K.mutedLight,lineHeight:1.5}}>Quando incontri questi clienti in centro, chiedi feedback sul percorso. Nessun messaggio WhatsApp.</div>
+      </div>
+      {feedback5.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun cliente con esattamente 5 sedute</div>:
+        feedback5.map(c=>(
+          <div key={c.id} style={C()}>
+            <div style={{display:"flex",alignItems:"center",gap:12}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto||"—"} · 5 sedute residue</div>
+              </div>
+              <span style={Tag(K.gold,K.goldBg,K.goldBorder)}>5 sed.</span>
+            </div>
+          </div>
+        ))}
+    </div>
+  );
+
+  if(panel==="rinnovo") return (
+    <div>
+      <button onClick={()=>setPanel(null)} style={B("ghost",{marginBottom:14,fontSize:12})}>← Dashboard</button>
+      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>🏆 Proposta rinnovo</div>
+      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>{rinnovo3.length} clienti con 3 o meno sedute residue</div>
+      {rinnovo3.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Nessun cliente da contattare</div>:
+        rinnovo3.map(c=>{const res=(c.sedute_total||0)-(c.sedute_usate||0);return(
+          <div key={c.id} style={C({border:`1px solid ${K.dangerBorder}`,background:K.dangerBg})}>
+            <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.danger,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+                <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto||"—"} · {res} sedute rimaste</div>
+              </div>
+              <span style={Tag(K.danger,K.dangerBg,K.dangerBorder)}>{res} sed.</span>
+            </div>
+            {c.telefono&&<a href={msgRinnovo(c)} target="_blank" rel="noreferrer" style={{...B("danger",{display:"block",padding:"8px",fontSize:12,textDecoration:"none",textAlign:"center",fontWeight:600})}}>💬 WhatsApp — proposta rinnovo</a>}
+          </div>
+        );})}
+    </div>
+  );
+
   /* ─── VISTA PRINCIPALE DASHBOARD ─── */
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
+      {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0)&&(
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ AZIONI DI OGGI</div>
+          {rinnovo3.length>0&&(
+            <div onClick={()=>setPanel("rinnovo")} style={C({cursor:"pointer",border:`1px solid ${K.dangerBorder}`,background:K.dangerBg,display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.danger,color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>🏆</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.danger}}>{rinnovo3.length} proposte rinnovo (≤3 sedute)</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Tocca per i messaggi WhatsApp →</div></div>
+            </div>
+          )}
+          {biaDaFare.length>0&&(
+            <div onClick={()=>setPanel("bia")} style={C({cursor:"pointer",border:`1px solid ${K.infoBorder||"#102030"}`,background:K.infoBg||"#08101e",display:"flex",alignItems:"center",gap:14,marginBottom:8})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.info||"#3a7bd5",color:"#fff",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14}}>🩺</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.info||"#3a7bd5"}}>{biaDaFare.length} BIA da fare (oltre 30gg)</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Invita a nuova rilevazione →</div></div>
+            </div>
+          )}
+          {feedback5.length>0&&(
+            <div onClick={()=>setPanel("feedback5")} style={C({cursor:"pointer",border:`1px solid ${K.goldBorder}`,background:"#0e0e0e",display:"flex",alignItems:"center",gap:14,marginBottom:0})}>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,color:K.gold,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:14,border:`1px solid ${K.goldBorder}`}}>💬</div>
+              <div style={{flex:1}}><div style={{fontWeight:600,fontSize:14,color:K.gold}}>{feedback5.length} feedback da chiedere (5 sedute)</div><div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>Promemoria interno →</div></div>
+            </div>
+          )}
+        </div>
+      )}
       {leadsNuovi.length>0&&(
         <div onClick={()=>setTab("lead")} style={C({cursor:"pointer",border:`1px solid ${K.gold}`,background:K.goldBg,display:"flex",alignItems:"center",gap:14,marginBottom:14})}>
           <div style={{width:44,height:44,borderRadius:"50%",background:K.gold,color:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontWeight:700,fontSize:18}}>◆</div>

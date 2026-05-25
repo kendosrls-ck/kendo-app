@@ -28,11 +28,11 @@
 // ╚════════════════════════════════════════════════════════════════╝
 
 const CONFIG = {
-  // URL del webhook su Vercel (sara' dato dopo il deploy)
-  WEBHOOK_URL: "https://kendo-app.vercel.app/api/lead-webhook",
+  // URL del webhook su Vercel (live)
+  WEBHOOK_URL: "https://kendo-app-weld.vercel.app/api/lead-webhook",
 
   // Stesso valore impostato in Vercel come LEAD_WEBHOOK_SECRET
-  SECRET: "CAMBIA_QUESTO_SECRET_CON_QUELLO_DI_VERCEL",
+  SECRET: "kendo-VxIPNeH0Ar1gbiOIdna4M9EWHhnqGyQd",
 
   // Etichetta Gmail per marcare email gia' elaborate
   PROCESSED_LABEL: "KendoProcessed",
