@@ -117,7 +117,20 @@ function StatBox({label,value,sub,color}) {
 }
 
 /* ─── MAIN APP ─── */
+const useIsDesktop = () => {
+  const [isDesktop, setIsDesktop] = useState(() =>
+    typeof window !== 'undefined' && window.innerWidth >= 1024
+  );
+  useEffect(() => {
+    const onResize = () => setIsDesktop(window.innerWidth >= 1024);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+  return isDesktop;
+};
+
 export default function App() {
+  const isDesktop = useIsDesktop();
   const [screen,setScreen]=useState("loading");
   const [role,setRole]=useState("user");
   const [tab,setTab]=useState("home");
@@ -196,47 +209,85 @@ export default function App() {
   return (
     <>
       <style>{gs}</style>
-      <div style={{maxWidth:390,margin:"0 auto",color:K.white,background:K.black,minHeight:"100vh",display:"flex",flexDirection:"column",fontFamily:"system-ui,sans-serif"}}>
-        <div style={{background:K.surface,borderBottom:`1px solid ${K.border}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
-          <div style={{display:"flex",alignItems:"center",gap:10}}>
-            <Logo size={26}/>
-            <div>
-              <div style={{fontWeight:600,fontSize:15,color:K.gold,letterSpacing:3}}>KENDO</div>
-              <div style={{fontSize:10,color:K.muted,letterSpacing:1}}>{role==="admin"?"ADMIN":"PIANO "+(piano||"basic").toUpperCase()}</div>
+      <div style={{maxWidth:isDesktop?1280:390,margin:"0 auto",color:K.white,background:K.black,minHeight:"100vh",display:"flex",flexDirection:isDesktop?"row":"column",fontFamily:"system-ui,sans-serif"}}>
+        {/* SIDEBAR DESKTOP */}
+        {isDesktop && (
+          <div style={{width:240,minWidth:240,background:K.surface,borderRight:`1px solid ${K.border}`,padding:"20px 12px",display:"flex",flexDirection:"column",gap:4,height:"100vh",position:"sticky",top:0}}>
+            <div style={{display:"flex",alignItems:"center",gap:10,padding:"4px 12px 18px",borderBottom:`1px solid ${K.border}`,marginBottom:12}}>
+              <Logo size={28}/>
+              <div>
+                <div style={{fontWeight:600,fontSize:15,color:K.gold,letterSpacing:3}}>KENDO</div>
+                <div style={{fontSize:9,color:K.muted,letterSpacing:1}}>{role==="admin"?"ADMIN":"PIANO "+(piano||"basic").toUpperCase()}</div>
+              </div>
             </div>
+            {nav.map(n=>(
+              <button key={n.id} onClick={()=>setTab(n.id)} style={{
+                background:tab===n.id?K.goldBg:"transparent",
+                border:`1px solid ${tab===n.id?K.goldBorder:"transparent"}`,
+                color:tab===n.id?K.gold:K.mutedLight,
+                fontWeight:tab===n.id?600:400,
+                cursor:"pointer", display:"flex", alignItems:"center", gap:12,
+                padding:"10px 14px", borderRadius:8, fontSize:13, fontFamily:"inherit",
+                textAlign:"left", letterSpacing:0.5
+              }}>
+                <span style={{fontSize:16,width:18,textAlign:"center"}}>{n.icon}</span>
+                <span>{n.label}</span>
+              </button>
+            ))}
+            <div style={{flex:1}}/>
+            <button onClick={handleLogout} style={B("ghost",{padding:"8px 14px",fontSize:12,marginTop:8})}>← Esci</button>
           </div>
-          <button onClick={handleLogout} style={B("ghost",{padding:"5px 12px",fontSize:11})}>Esci</button>
-        </div>
+        )}
 
-        <div style={{flex:1,overflowY:"auto",padding:"14px 14px 80px"}}>
-          {role==="admin"?(
-            <>
-              {tab==="home"    && <Dashboard setTab={setTab}/>}
-              {tab==="lead"    && <LeadAdmin/>}
-              {tab==="clienti" && <Clienti/>}
-              {tab==="agenda"  && <Agenda/>}
-              {tab==="followup"&& <FollowUp/>}
-              {tab==="chat"    && <ChatAI piano="gold" isAdmin/>}
-            </>
-          ):(
-            <>
-              {tab==="home"    && <HomeUser piano={piano} profile={profile} chk={chk} setChk={setChk}/>}
-              {tab==="prenota" && <Prenota piano={piano} userId={currentUser?.id} profile={profile} setProfile={setProfile}/>}
-              {tab==="bia"     && <BIATab userId={currentUser?.id}/>}
-              {tab==="dieta"   && <DietaTab piano={piano}/>}
-              {tab==="chat"    && <ChatAI piano={piano} userId={currentUser?.id}/>}
-            </>
+        {/* COLONNA PRINCIPALE */}
+        <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+          {/* HEADER MOBILE (sticky) */}
+          {!isDesktop && (
+            <div style={{background:K.surface,borderBottom:`1px solid ${K.border}`,padding:"10px 16px",display:"flex",alignItems:"center",justifyContent:"space-between",position:"sticky",top:0,zIndex:10}}>
+              <div style={{display:"flex",alignItems:"center",gap:10}}>
+                <Logo size={26}/>
+                <div>
+                  <div style={{fontWeight:600,fontSize:15,color:K.gold,letterSpacing:3}}>KENDO</div>
+                  <div style={{fontSize:10,color:K.muted,letterSpacing:1}}>{role==="admin"?"ADMIN":"PIANO "+(piano||"basic").toUpperCase()}</div>
+                </div>
+              </div>
+              <button onClick={handleLogout} style={B("ghost",{padding:"5px 12px",fontSize:11})}>Esci</button>
+            </div>
           )}
-        </div>
 
-        <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:390,background:K.surface,borderTop:`1px solid ${K.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 12px"}}>
-          {nav.map(n=>(
-            <button key={n.id} onClick={()=>setTab(n.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"0 8px"}}>
-              <span style={{fontSize:16,color:tab===n.id?K.gold:K.muted}}>{n.icon}</span>
-              <span style={{fontSize:10,color:tab===n.id?K.gold:K.muted,fontWeight:tab===n.id?600:400,letterSpacing:0.5}}>{n.label}</span>
-              {tab===n.id&&<div style={{width:16,height:1.5,background:K.gold,borderRadius:2}}/>}
-            </button>
-          ))}
+          <div style={{flex:1,overflowY:"auto",padding:isDesktop?"24px 32px":"14px 14px 80px"}}>
+            {role==="admin"?(
+              <>
+                {tab==="home"    && <Dashboard setTab={setTab}/>}
+                {tab==="lead"    && <LeadAdmin/>}
+                {tab==="clienti" && <Clienti/>}
+                {tab==="agenda"  && <Agenda/>}
+                {tab==="followup"&& <FollowUp/>}
+                {tab==="chat"    && <ChatAI piano="gold" isAdmin/>}
+              </>
+            ):(
+              <>
+                {tab==="home"    && <HomeUser piano={piano} profile={profile} chk={chk} setChk={setChk}/>}
+                {tab==="prenota" && <Prenota piano={piano} userId={currentUser?.id} profile={profile} setProfile={setProfile}/>}
+                {tab==="bia"     && <BIATab userId={currentUser?.id}/>}
+                {tab==="dieta"   && <DietaTab piano={piano}/>}
+                {tab==="chat"    && <ChatAI piano={piano} userId={currentUser?.id}/>}
+              </>
+            )}
+          </div>
+
+          {/* NAV INFERIORE MOBILE */}
+          {!isDesktop && (
+            <div style={{position:"fixed",bottom:0,left:"50%",transform:"translateX(-50%)",width:"100%",maxWidth:390,background:K.surface,borderTop:`1px solid ${K.border}`,display:"flex",justifyContent:"space-around",padding:"10px 0 12px",zIndex:10}}>
+              {nav.map(n=>(
+                <button key={n.id} onClick={()=>setTab(n.id)} style={{background:"none",border:"none",cursor:"pointer",display:"flex",flexDirection:"column",alignItems:"center",gap:3,padding:"0 8px"}}>
+                  <span style={{fontSize:16,color:tab===n.id?K.gold:K.muted}}>{n.icon}</span>
+                  <span style={{fontSize:10,color:tab===n.id?K.gold:K.muted,fontWeight:tab===n.id?600:400,letterSpacing:0.5}}>{n.label}</span>
+                  {tab===n.id&&<div style={{width:16,height:1.5,background:K.gold,borderRadius:2}}/>}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
       </div>
     </>
@@ -1383,6 +1434,7 @@ function Clienti() {
             {waPhone&&<button onClick={()=>apriWa(waPhone,waText)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",cursor:"pointer"})}}>💬</button>}
           </div>
         </div>
+        <ClienteBia clienteId={c.id} cliente={c} />
       </div>
     );
   }

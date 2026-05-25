@@ -28,7 +28,14 @@ const B = (v="gold", ex={}) => {
 };
 const Tag = (color, bg, border) => ({ background:bg, color, border:`1px solid ${border||bg}`, fontSize:11, fontWeight:500, padding:"3px 9px", borderRadius:20, display:"inline-block", whiteSpace:"nowrap" });
 
-const cleanPhoneIT = (t) => (t||"").replace(/[^0-9+]/g,"").replace(/^\+39/,"").replace(/^39/,"");
+// Normalizza un numero italiano a solo cifre senza prefisso +39/0039/39 e senza zero iniziale.
+const cleanPhoneIT = (t) => {
+  let s = (t||"").replace(/[^0-9+]/g,"").replace(/^\+/,"");
+  if (s.startsWith("0039")) s = s.slice(4);
+  if (s.startsWith("39") && s.length >= 11) s = s.slice(2);
+  if (s.startsWith("0")) s = s.slice(1);
+  return s;
+};
 const fmtDate = (s) => s ? new Date(s).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
 const fmtDateTime = (s) => s ? new Date(s).toLocaleString("it-IT",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"}) : "—";
 
@@ -268,17 +275,23 @@ export default function LeadAdmin() {
             </div>
             {(l.cellulare || l.email) && (
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {l.cellulare && tel && (
+                {tel && (
                   <button
                      onClick={async(e)=>{e.stopPropagation(); await apriWA(l); markWhatsappSent(l.id);}}
                      style={{...B("success",{flex:1,padding:"7px 10px",fontSize:11,textAlign:"center",cursor:"pointer"}),minWidth:0}}>
                     💬 WhatsApp
                   </button>
                 )}
-                {l.cellulare && (
-                  <a href={`tel:${l.cellulare}`} onClick={e=>e.stopPropagation()}
+                {(l.cellulare || l.telefono_normalizzato) && (
+                  <a href={`tel:${l.cellulare||l.telefono_normalizzato}`} onClick={e=>e.stopPropagation()}
                      style={{...B("info",{flex:1,padding:"7px 10px",fontSize:11,textDecoration:"none",textAlign:"center"}),minWidth:0}}>
                     📞 Chiama
+                  </a>
+                )}
+                {!tel && l.email && (
+                  <a href={`mailto:${l.email}`} onClick={e=>e.stopPropagation()}
+                     style={{...B("info",{flex:1,padding:"7px 10px",fontSize:11,textDecoration:"none",textAlign:"center"}),minWidth:0}}>
+                    ✉️ Email
                   </a>
                 )}
               </div>
