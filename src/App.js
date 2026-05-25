@@ -943,6 +943,38 @@ function ChatAI({piano, isAdmin, userId}) {
   );
 }
 
+/* ─── BANNER NOTIFICHE ─── */
+function BannerNotifiche() {
+  const supportato = typeof Notification !== "undefined";
+  const [perm, setPerm] = useState(supportato ? Notification.permission : "unsupported");
+  const [hidden, setHidden] = useState(()=>{
+    try { return localStorage.getItem("kendo_banner_notif_dismissed")==="1"; } catch(_) { return false; }
+  });
+  if (!supportato || perm==="granted" || perm==="denied" || hidden) return null;
+  const richiedi = async () => {
+    try {
+      const r = await Notification.requestPermission();
+      setPerm(r);
+      if (r === "granted") new Notification("✓ Notifiche attive", { body: "Riceverai un avviso per ogni nuovo lead e prenotazione." });
+    } catch(_) {}
+  };
+  const dismiss = () => {
+    setHidden(true);
+    try { localStorage.setItem("kendo_banner_notif_dismissed","1"); } catch(_) {}
+  };
+  return (
+    <div style={C({border:`1px solid ${K.goldBorder}`,background:K.goldBg,display:"flex",alignItems:"center",gap:12})}>
+      <div style={{fontSize:24}}>🔔</div>
+      <div style={{flex:1,minWidth:0}}>
+        <div style={{fontSize:13,color:K.gold,fontWeight:600,marginBottom:2}}>Abilita le notifiche</div>
+        <div style={{fontSize:11,color:K.mutedLight}}>Ricevi un avviso immediato per ogni nuovo lead e prenotazione, anche quando l'app è in background.</div>
+      </div>
+      <button onClick={richiedi} style={{...B("gold",{padding:"7px 12px",fontSize:11,flexShrink:0})}}>Abilita</button>
+      <button onClick={dismiss} style={{background:"none",border:"none",color:K.muted,cursor:"pointer",fontSize:18,padding:"0 4px"}}>×</button>
+    </div>
+  );
+}
+
 /* ─── DASHBOARD ADMIN ─── */
 function Dashboard({setTab}) {
   const [clienti,setClienti]=useState([]);
@@ -968,33 +1000,62 @@ function Dashboard({setTab}) {
     }).catch(()=>{setLoading(false);});
   },[oggi,domani]);
 
-  // NOTIFICHE PUSH NUOVI LEAD: polling ogni 60s + Notification API
+  // Suono notifica (data URI di un beep dorato breve, ~0.2s)
+  const playSound = ()=>{
+    try {
+      const ctx = new (window.AudioContext||window.webkitAudioContext)();
+      const o=ctx.createOscillator();const g=ctx.createGain();
+      o.connect(g);g.connect(ctx.destination);
+      o.frequency.value=880;o.type="sine";
+      g.gain.setValueAtTime(0.15,ctx.currentTime);
+      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.25);
+      o.start();o.stop(ctx.currentTime+0.25);
+    } catch(_) {}
+  };
+
+  // NOTIFICHE PUSH: lead nuovi + prenotazioni nuove + scadenze del giorno
   useEffect(()=>{
     if(typeof window==="undefined"||!("Notification" in window))return;
-    let lastIds = new Set();
+    let lastLeads = new Set();
+    let lastPren = new Set();
     let isMounted = true;
+    const notify = (title, body, tag) => {
+      if (Notification.permission !== "granted") return;
+      try {
+        const notif = new Notification(title, { body, tag, icon: "/logo192.png", silent: false });
+        notif.onclick = () => { window.focus(); notif.close(); };
+        playSound();
+      } catch(_) {}
+    };
     const check = async () => {
-      const {data} = await supabase.from("leads").select("id,nome,cognome,cellulare,created_at").eq("stato","nuovo").order("created_at",{ascending:false}).limit(20);
-      if (!isMounted || !data) return;
-      const currentIds = new Set(data.map(x=>x.id));
-      if (lastIds.size > 0) {
-        const nuoviAppena = data.filter(x => !lastIds.has(x.id));
-        for (const n of nuoviAppena) {
-          if (Notification.permission === "granted") {
-            try {
-              const notif = new Notification("📩 Nuovo lead Kendo", {
-                body: `${n.nome||""} ${n.cognome||""} · ${n.cellulare||"senza tel"}`,
-                tag: "lead-" + n.id,
-                icon: "/logo192.png",
-              });
-              notif.onclick = () => { window.focus(); notif.close(); };
-            } catch(_) {}
+      const [{data: lLeads}, {data: lPren}] = await Promise.all([
+        supabase.from("leads").select("id,nome,cognome,cellulare,fonte").eq("stato","nuovo").order("created_at",{ascending:false}).limit(20),
+        supabase.from("prenotazioni").select("id,user_id,data,ora,tipo").eq("stato","confermata").gte("data", new Date().toISOString().split("T")[0]).order("created_at",{ascending:false}).limit(20),
+      ]);
+      if (!isMounted) return;
+      // Lead nuovi
+      if (lLeads) {
+        const ids = new Set(lLeads.map(x=>x.id));
+        if (lastLeads.size > 0) {
+          for (const n of lLeads.filter(x => !lastLeads.has(x.id))) {
+            const src = n.fonte ? ` (${n.fonte})` : "";
+            notify("📩 Nuovo lead Kendo" + src, `${n.nome||""} ${n.cognome||""} · ${n.cellulare||"senza tel"}`, "lead-"+n.id);
           }
         }
+        lastLeads = ids;
       }
-      lastIds = currentIds;
+      // Prenotazioni nuove
+      if (lPren) {
+        const ids = new Set(lPren.map(x=>x.id));
+        if (lastPren.size > 0) {
+          for (const p of lPren.filter(x => !lastPren.has(x.id))) {
+            const dt = new Date(p.data).toLocaleDateString("it-IT");
+            notify("📅 Nuova prenotazione", `${p.tipo||"Allenamento"} · ${dt} ore ${p.ora||""}`, "pren-"+p.id);
+          }
+        }
+        lastPren = ids;
+      }
     };
-    // Richiede permesso solo su click utente: l'admin può abilitare manualmente
     check();
     const iv = setInterval(check, 60000);
     return () => { isMounted = false; clearInterval(iv); };
@@ -1020,6 +1081,8 @@ function Dashboard({setTab}) {
   // Compleanni di questo mese
   const meseOggi=oggiD.getMonth();
   const compleanniMese=cList.filter(c=>c?.data_nascita&&new Date(c.data_nascita).getMonth()===meseOggi).sort((a,b)=>new Date(a.data_nascita).getDate()-new Date(b.data_nascita).getDate());
+  const giornoOggi=oggiD.getDate();
+  const compleanniOggi=compleanniMese.filter(c=>new Date(c.data_nascita).getDate()===giornoOggi);
   // KPI rapidi
   const ggFa=(n)=>{const d=new Date(oggiD);d.setDate(d.getDate()-n);return d.toISOString().split("T")[0];};
   const seduteUltimaSett=0; // placeholder per ora, andrà collegato a prenotazioni passate
@@ -1325,6 +1388,32 @@ function Dashboard({setTab}) {
   return (
     <div>
       <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:16}}><Logo size={22}/><span style={{fontWeight:600,fontSize:16,color:K.gold,letterSpacing:1}}>DASHBOARD</span></div>
+
+      {/* Banner abilita notifiche (solo se non ancora autorizzate e supportate) */}
+      <BannerNotifiche/>
+
+      {/* COMPLEANNI DI OGGI - card prominente */}
+      {compleanniOggi.length>0 && (
+        <div style={{marginBottom:14}}>
+          <div style={{fontSize:11,color:K.gold,letterSpacing:1,marginBottom:8,fontWeight:600}}>🎂 OGGI COMPIE GLI ANNI</div>
+          {compleanniOggi.map(c=>{
+            const eta=oggiD.getFullYear()-new Date(c.data_nascita).getFullYear();
+            const tel=(c.telefono||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
+            const msg=`Tantissimi auguri ${c.nome||""}! 🎉🎂✨ Buon compleanno da tutto il team Fit And Go Padova! Ti aspettiamo presto in centro per festeggiarti con un allenamento speciale 💪⚡`;
+            return (
+              <div key={c.id} style={C({border:`2px solid ${K.gold}`,background:K.goldBg,display:"flex",alignItems:"center",gap:14})}>
+                <div style={{width:44,height:44,borderRadius:"50%",background:K.gold,color:"#080808",display:"flex",alignItems:"center",justifyContent:"center",fontSize:22,flexShrink:0}}>🎂</div>
+                <div style={{flex:1,minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:15,color:K.gold}}>{c.nome||""} {c.cognome||""}</div>
+                  <div style={{fontSize:12,color:K.mutedLight,marginTop:2}}>{eta} anni · Manda gli auguri ora 🎁</div>
+                </div>
+                {tel && <button onClick={()=>apriWa(tel,msg)} style={{...B("gold",{padding:"10px 14px",fontSize:13,cursor:"pointer",flexShrink:0})}}>🎁 Auguri</button>}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
       {(biaDaFare.length>0||feedback5.length>0||rinnovo3.length>0||certMedicoScad.length>0||iscrizioneScad.length>0||compleanniMese.length>0||prenDomani.length>0)&&(
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚡ AZIONI DI OGGI</div>
