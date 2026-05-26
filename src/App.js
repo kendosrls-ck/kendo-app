@@ -999,6 +999,123 @@ function DonutChart({ slices, size = 90 }) {
 }
 
 /* ─── CHARTS DASHBOARD ADMIN ─── */
+function DashboardFinanze() {
+  const [data, setData] = useState({ topClienti: [], churnRecenti: [], totValore: 0, totDebito: 0, totSedute: 0, avgValore: 0 });
+  const [loading, setLoading] = useState(true);
+  const [aperto, setAperto] = useState(false);
+
+  useEffect(() => {
+    if (!aperto || !loading) return;
+    (async () => {
+      const { data: clienti } = await supabase.from("clienti").select("nome,cognome,valore_cliente,posizione_debitoria,status_crm,sedute_total,sedute_usate,data_inizio_pacchetto,updated_at");
+      const lista = clienti || [];
+      const attivi = lista.filter(c => c.status_crm === "CLIENTE ATTIVO" || !c.status_crm);
+      const totValore = lista.reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
+      const totDebito = lista.reduce((s, c) => s + (parseFloat(c.posizione_debitoria) || 0), 0);
+      const totSedute = lista.reduce((s, c) => s + (c.sedute_usate || 0), 0);
+      const valoriPositivi = lista.map(c => parseFloat(c.valore_cliente) || 0).filter(v => v > 0);
+      const avgValore = valoriPositivi.length > 0 ? valoriPositivi.reduce((s, v) => s + v, 0) / valoriPositivi.length : 0;
+      const topClienti = [...lista]
+        .map(c => ({ ...c, valore: parseFloat(c.valore_cliente) || 0 }))
+        .filter(c => c.valore > 0)
+        .sort((a, b) => b.valore - a.valore)
+        .slice(0, 5);
+      // Churn = clienti cancellati negli ultimi 90 giorni
+      const since = new Date(Date.now() - 90 * 86400000);
+      const churnRecenti = lista
+        .filter(c => c.status_crm === "CANCELLATO" && c.updated_at && new Date(c.updated_at) >= since)
+        .slice(0, 5);
+      setData({ topClienti, churnRecenti, totValore, totDebito, totSedute, avgValore, totAttivi: attivi.length, totClienti: lista.length });
+      setLoading(false);
+    })();
+  }, [aperto, loading]);
+
+  const churnRate = data.totClienti > 0 ? ((data.churnRecenti.length / data.totClienti) * 100).toFixed(1) : "0.0";
+
+  return (
+    <div style={{marginBottom:14}}>
+      <div onClick={() => setAperto(!aperto)} style={C({cursor:"pointer",display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:0,border:`1px solid ${aperto ? K.gold : K.border}`,background:aperto ? K.goldBg : K.card})}>
+        <div>
+          <div style={{fontSize:13,fontWeight:600,color:K.gold}}>💰 Analisi finanziarie</div>
+          <div style={{fontSize:11,color:K.muted,marginTop:2}}>{aperto ? "Tocca per chiudere" : "Lifetime value, top clienti, churn, debiti"}</div>
+        </div>
+        <div style={{fontSize:14,color:K.gold,fontWeight:600}}>{aperto ? "▾" : "▸"}</div>
+      </div>
+
+      {aperto && (
+        <div style={{marginTop:10}}>
+          {loading ? <div style={C({textAlign:"center",padding:"1rem",color:K.muted,fontSize:11})}>Caricamento…</div> : (
+            <>
+              {/* KPI grandi */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
+                <div style={C({marginBottom:0})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>VALORE TOTALE CRM</div>
+                  <div style={{fontSize:22,fontWeight:600,color:K.gold}}>€{Math.round(data.totValore).toLocaleString("it-IT")}</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>{data.totClienti} clienti</div>
+                </div>
+                <div style={C({marginBottom:0})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>LIFETIME VALUE MEDIO</div>
+                  <div style={{fontSize:22,fontWeight:600,color:K.success}}>€{Math.round(data.avgValore).toLocaleString("it-IT")}</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>per cliente con valore</div>
+                </div>
+              </div>
+
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}}>
+                <div style={C({marginBottom:0,border:data.totDebito>0?`1px solid ${K.dangerBorder}`:`1px solid ${K.border}`,background:data.totDebito>0?K.dangerBg:K.card})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>DEBITI CRM</div>
+                  <div style={{fontSize:16,fontWeight:600,color:data.totDebito>0?K.danger:K.muted}}>€{Math.round(data.totDebito).toLocaleString("it-IT")}</div>
+                </div>
+                <div style={C({marginBottom:0})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>SEDUTE EROGATE</div>
+                  <div style={{fontSize:16,fontWeight:600,color:K.gold}}>{data.totSedute.toLocaleString("it-IT")}</div>
+                </div>
+                <div style={C({marginBottom:0,border:parseFloat(churnRate)>5?`1px solid ${K.dangerBorder}`:`1px solid ${K.border}`,background:parseFloat(churnRate)>5?K.dangerBg:K.card})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>CHURN 90GG</div>
+                  <div style={{fontSize:16,fontWeight:600,color:parseFloat(churnRate)>5?K.danger:K.success}}>{churnRate}%</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>{data.churnRecenti.length} cancellati</div>
+                </div>
+              </div>
+
+              {/* Top 5 clienti */}
+              {data.topClienti.length>0 && (
+                <div style={C()}>
+                  <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:10}}>🏆 TOP 5 CLIENTI PER VALORE</div>
+                  {data.topClienti.map((c, i) => (
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"8px 0",borderBottom: i < data.topClienti.length - 1 ? `1px solid ${K.border}` : "none"}}>
+                      <div style={{width:24,height:24,borderRadius:"50%",background:i===0?K.gold:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:11,fontWeight:700,color:i===0?"#080808":K.gold,flexShrink:0}}>{i+1}</div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,color:K.white,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis"}}>{c.nome} {c.cognome}</div>
+                        <div style={{fontSize:10,color:K.muted}}>{c.sedute_usate||0} sedute · {c.status_crm||"ATTIVO"}</div>
+                      </div>
+                      <div style={{fontSize:14,fontWeight:600,color:K.gold,flexShrink:0}}>€{Math.round(c.valore).toLocaleString("it-IT")}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Churn recenti */}
+              {data.churnRecenti.length>0 && (
+                <div style={C({border:`1px solid ${K.dangerBorder}`,background:K.dangerBg})}>
+                  <div style={{fontSize:11,color:K.danger,letterSpacing:1,marginBottom:10,fontWeight:600}}>📉 PERSI ULTIMI 90 GIORNI</div>
+                  {data.churnRecenti.map((c, i) => (
+                    <div key={i} style={{display:"flex",alignItems:"center",gap:10,padding:"6px 0",borderBottom: i < data.churnRecenti.length - 1 ? `1px solid ${K.dangerBorder}` : "none"}}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,color:K.mutedLight,overflow:"hidden",textOverflow:"ellipsis"}}>{c.nome} {c.cognome}</div>
+                        <div style={{fontSize:10,color:K.muted}}>Cancellato il {c.updated_at ? new Date(c.updated_at).toLocaleDateString("it-IT") : "—"}</div>
+                      </div>
+                      <div style={{fontSize:12,color:K.muted}}>€{Math.round(parseFloat(c.valore_cliente)||0).toLocaleString("it-IT")}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DashboardCharts() {
   const [data, setData] = useState({ leadGiornalieri: [], fontiLead: [], conversioniMese: [], statoLead: [] });
   const [loading, setLoading] = useState(true);
@@ -1844,6 +1961,7 @@ function Dashboard({setTab}) {
           <div style={{fontSize:18,fontWeight:600,color:debitiAttivi>0?K.danger:K.muted}}>{debitiAttivi}</div>
         </div>
       </div>
+      <DashboardFinanze/>
       <DashboardCharts/>
       {quasi5.length>0&&(
         <div style={{marginBottom:14}}>
