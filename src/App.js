@@ -1374,9 +1374,12 @@ function Dashboard({setTab}) {
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  // Testi dei messaggi WhatsApp (con emoji integre)
+  // Testi dei messaggi WhatsApp (con emoji integre).
+  // TODO futuro: caricarli dal DB (tabella message_templates) invece che hardcoded.
   const textBia=(c)=>`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
   const textRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;};
+  const text5Sedute=(c)=>`Ciao ${c?.nome||""}! 👋\n\nTi aggiorno: ti restano 5 sedute del tuo pacchetto. Continuiamo a lavorare insieme per arrivare al tuo obiettivo! 💪\n\nQuando ci vediamo per la prossima? Possiamo organizzare anche un piccolo controllo della tua composizione corporea per misurare i progressi 📊`;
+  const textRegolamento=(c)=>`Ciao ${c?.nome||""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
   // Copia il messaggio negli appunti e apre WhatsApp con la sola chat.
   // Mettere il testo dentro l'URL corrompe le emoji 4-byte UTF-8 su WhatsApp Desktop,
   // mentre il clipboard le preserva. L'utente fa Ctrl+V (o long-press su mobile).
@@ -2048,11 +2051,12 @@ function Clienti({ navTarget }) {
           <div style={{display:"flex",gap:8}}>
             <button onClick={()=>togliSeduta(c.id)} disabled={usate===0} style={{...B("danger",{padding:"10px",fontSize:13})}}>−</button>
             <button onClick={()=>segnaSeduta(c.id)} disabled={res===0} style={{...B("gold",{flex:1,padding:"10px",fontSize:13})}}>+ Segna seduta ({usate}/{tot})</button>
-            {waPhone&&<button onClick={()=>apriWa(waPhone,waText)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",cursor:"pointer"})}}>💬</button>}
+            {waPhone&&<WhatsAppMenu cliente={c} onSend={(text)=>apriWa(waPhone,text)} textBia={textBia} text5Sedute={text5Sedute} textRinnovo={textRinnovo} textRegolamento={textRegolamento}/>}
           </div>
         </div>
         <ClienteStats cliente={c} />
         <ClienteDocumenti cliente={c} onSaved={(patch)=>setClienti(p=>p.map(x=>x.id===c.id?{...x,...patch}:x))} />
+        <ClienteTimeline cliente={c} />
         <ClienteNote cliente={c} />
         <ClienteBia clienteId={c.id} cliente={c} />
       </div>
@@ -2860,6 +2864,54 @@ function ClienteNote({ cliente }) {
   );
 }
 
+/* ─── MENU WHATSAPP CLIENTE (dropdown messaggi predefiniti) ─── */
+function WhatsAppMenu({ cliente, onSend, textBia, text5Sedute, textRinnovo, textRegolamento }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    const onClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+
+  const res = (cliente?.sedute_total || 0) - (cliente?.sedute_usate || 0);
+  const opzioni = [
+    { id: "bia", label: "📊 Controllo BIA", desc: "Richiamo nuova rilevazione", fn: () => onSend(textBia(cliente)) },
+    { id: "5sed", label: "💪 -5 sedute", desc: "Reminder 5 sedute rimanenti", fn: () => onSend(text5Sedute(cliente)), warn: res > 5 ? "ha più di 5 sedute" : null },
+    { id: "3sed", label: "🏆 -3 sedute", desc: "Proposta rinnovo pacchetto", fn: () => onSend(textRinnovo(cliente)), warn: res > 3 ? "ha più di 3 sedute" : null },
+    { id: "regol", label: "📋 Regolamento", desc: "Reminder regole disdetta/puntualità", fn: () => onSend(textRegolamento(cliente)) },
+    { id: "libero", label: "✏️ Solo apri chat", desc: "Senza messaggio predefinito", fn: () => onSend("") },
+  ];
+
+  return (
+    <span ref={wrapRef} style={{ position: "relative" }}>
+      <button onClick={() => setOpen(o => !o)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",gap:5,cursor:"pointer"})}}>💬 ▾</button>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", right: 0,
+          background: K.surface, border: `1px solid ${K.border}`, borderRadius: 10,
+          padding: 4, zIndex: 100, minWidth: 240,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.6)"
+        }}>
+          {opzioni.map(o => (
+            <div key={o.id} onClick={() => { o.fn(); setOpen(false); }} style={{
+              padding: "10px 12px", cursor: "pointer", borderRadius: 6
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = "#0e0e0e"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              <div style={{ fontSize: 13, color: K.white, fontWeight: 500 }}>{o.label}</div>
+              <div style={{ fontSize: 10, color: K.muted, marginTop: 2 }}>
+                {o.desc}{o.warn && <span style={{ color: K.gold, marginLeft: 4 }}>· ⚠️ {o.warn}</span>}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /* ─── STATISTICHE / ROI CLIENTE ─── */
 function ClienteStats({ cliente }) {
   const [bia, setBia] = useState([]);
@@ -2937,6 +2989,153 @@ function ClienteStats({ cliente }) {
       {debito > 0 && (
         <div style={{ marginTop:10, padding:"8px 12px", background:K.dangerBg, border:`1px solid ${K.dangerBorder}`, borderRadius:8, fontSize:12, color:K.danger, fontWeight:600 }}>
           ⚠️ Posizione debitoria: €{debito.toFixed(2)}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── TIMELINE CLIENTE (cronologia unificata eventi) ─── */
+function ClienteTimeline({ cliente }) {
+  const [eventi, setEventi] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("tutto");
+
+  useEffect(() => {
+    if (!cliente?.id) { setLoading(false); return; }
+    setLoading(true);
+    Promise.all([
+      supabase.from("bia").select("id,data_rilevazione,peso,grasso_perc,created_at,obiettivo").eq("cliente_id", cliente.id),
+      supabase.from("followup").select("id,data_contatto,motivo,esito,prossima_azione,created_at").eq("crm_cliente_id", cliente.id),
+      cliente.user_id
+        ? supabase.from("prenotazioni").select("id,data,ora,tipo,stato,created_at").eq("user_id", cliente.user_id)
+        : Promise.resolve({ data: [] }),
+      cliente.id
+        ? supabase.from("leads").select("id,nome,cognome,fonte,created_at,messaggio,whatsapp_inviato_at,convertito_at").eq("cliente_id", cliente.id)
+        : Promise.resolve({ data: [] }),
+    ]).then(([{ data: bia }, { data: note }, { data: pren }, { data: leads }]) => {
+      const ev = [];
+      (bia || []).forEach(b => ev.push({
+        tipo: "bia",
+        ts: b.data_rilevazione || b.created_at,
+        icon: "📊",
+        color: K.gold,
+        titolo: "Rilevazione BIA",
+        sub: [b.peso != null ? `${b.peso} kg` : null, b.grasso_perc != null ? `${b.grasso_perc}% grasso` : null, b.obiettivo].filter(Boolean).join(" · "),
+        id: "bia-" + b.id,
+      }));
+      (note || []).forEach(n => ev.push({
+        tipo: "nota",
+        ts: n.data_contatto || n.created_at,
+        icon: "📝",
+        color: K.info,
+        titolo: n.motivo,
+        sub: [n.esito ? `Esito: ${n.esito}` : null, n.prossima_azione ? `→ ${n.prossima_azione}` : null].filter(Boolean).join(" · "),
+        id: "note-" + n.id,
+      }));
+      (pren || []).forEach(p => ev.push({
+        tipo: "seduta",
+        ts: p.data + (p.ora ? "T" + p.ora : ""),
+        icon: p.stato === "cancellata" ? "❌" : "💪",
+        color: p.stato === "cancellata" ? K.danger : K.success,
+        titolo: p.stato === "cancellata" ? "Seduta cancellata" : `Seduta ${p.tipo || ""}`,
+        sub: p.ora ? `ore ${p.ora}` : null,
+        id: "pren-" + p.id,
+      }));
+      (leads || []).forEach(l => {
+        ev.push({
+          tipo: "lead",
+          ts: l.created_at,
+          icon: "📩",
+          color: K.gold,
+          titolo: "Lead ricevuto",
+          sub: `Fonte: ${l.fonte || "—"}`,
+          id: "lead-" + l.id,
+        });
+        if (l.whatsapp_inviato_at) ev.push({
+          tipo: "whatsapp",
+          ts: l.whatsapp_inviato_at,
+          icon: "💬",
+          color: K.success,
+          titolo: "WhatsApp inviato",
+          sub: "Primo contatto",
+          id: "wa-" + l.id,
+        });
+        if (l.convertito_at) ev.push({
+          tipo: "conversione",
+          ts: l.convertito_at,
+          icon: "🏆",
+          color: K.gold,
+          titolo: "Convertito in cliente",
+          sub: null,
+          id: "conv-" + l.id,
+        });
+      });
+      // ordina cronologicamente, più recente prima
+      ev.sort((a, b) => new Date(b.ts) - new Date(a.ts));
+      setEventi(ev);
+      setLoading(false);
+    });
+  }, [cliente?.id, cliente?.user_id]);
+
+  if (loading) return <div style={C()}><div style={{fontSize:11,color:K.muted,letterSpacing:1}}>TIMELINE</div><div style={{fontSize:12,color:K.muted,marginTop:6}}>Caricamento…</div></div>;
+
+  const filtered = filter === "tutto" ? eventi : eventi.filter(e => e.tipo === filter);
+  const fmt = (s) => {
+    if (!s) return "—";
+    const d = new Date(s);
+    return d.toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "2-digit" }) +
+           (s.includes("T") && !s.endsWith("Z") && s.length > 10 ? " · " + d.toLocaleTimeString("it-IT", { hour: "2-digit", minute: "2-digit" }) : "");
+  };
+
+  const filtri = [
+    ["tutto", "Tutto"],
+    ["bia", "📊 BIA"],
+    ["nota", "📝 Note"],
+    ["seduta", "💪 Sedute"],
+    ["lead", "📩 Lead"],
+  ];
+
+  return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>🕐 TIMELINE ({eventi.length})</div>
+      </div>
+      <div style={{display:"flex",gap:4,marginBottom:10,overflowX:"auto",paddingBottom:2}}>
+        {filtri.map(([k,lab])=>(
+          <button key={k} onClick={()=>setFilter(k)} style={{
+            flexShrink:0,
+            background: filter===k ? K.goldBg : "transparent",
+            border: `1px solid ${filter===k ? K.gold : K.border}`,
+            color: filter===k ? K.gold : K.mutedLight,
+            borderRadius: 6, padding:"4px 9px", fontSize:10, cursor:"pointer", fontFamily:"inherit"
+          }}>{lab}</button>
+        ))}
+      </div>
+      {filtered.length === 0 ? (
+        <div style={{fontSize:12,color:K.muted,padding:"12px",textAlign:"center"}}>Nessun evento</div>
+      ) : (
+        <div style={{display:"flex",flexDirection:"column",gap:2}}>
+          {filtered.slice(0, 20).map((e, i) => (
+            <div key={e.id} style={{display:"flex",gap:10,padding:"8px 4px",borderBottom: i < Math.min(filtered.length, 20) - 1 ? `1px solid ${K.border}` : "none"}}>
+              <div style={{
+                width: 30, height: 30, borderRadius: "50%",
+                background: e.color + "22", border: `1px solid ${e.color}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 13, flexShrink: 0
+              }}>{e.icon}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:12,color:K.white,fontWeight:500,overflow:"hidden",textOverflow:"ellipsis"}}>{e.titolo}</div>
+                {e.sub && <div style={{fontSize:11,color:K.mutedLight,marginTop:2}}>{e.sub}</div>}
+                <div style={{fontSize:10,color:K.muted,marginTop:2}}>{fmt(e.ts)}</div>
+              </div>
+            </div>
+          ))}
+          {filtered.length > 20 && (
+            <div style={{fontSize:10,color:K.muted,textAlign:"center",marginTop:6}}>
+              + {filtered.length - 20} eventi più vecchi
+            </div>
+          )}
         </div>
       )}
     </div>
