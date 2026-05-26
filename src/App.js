@@ -943,6 +943,171 @@ function ChatAI({piano, isAdmin, userId}) {
   );
 }
 
+/* ─── MINI CHART SVG (sparkline/bars) ─── */
+function MiniBars({ data, color = K.gold, height = 40 }) {
+  if (!data || data.length === 0) return <div style={{height, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, color:K.muted}}>nessun dato</div>;
+  const max = Math.max(1, ...data.map(d => d.value || 0));
+  const barW = 100 / data.length;
+  return (
+    <svg width="100%" height={height} viewBox={`0 0 100 ${height}`} preserveAspectRatio="none" style={{display:"block"}}>
+      {data.map((d, i) => {
+        const h = (d.value / max) * (height - 4);
+        const x = i * barW + barW * 0.15;
+        const w = barW * 0.7;
+        const y = height - h - 1;
+        return (
+          <g key={i}>
+            <rect x={x} y={y} width={w} height={h} fill={color} opacity={d.value === 0 ? 0.2 : 1} rx="0.5"/>
+            <title>{d.label}: {d.value}</title>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
+function DonutChart({ slices, size = 90 }) {
+  const total = slices.reduce((s, x) => s + x.value, 0) || 1;
+  let acc = 0;
+  const r = size / 2 - 6;
+  const cx = size / 2, cy = size / 2;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      {slices.map((s, i) => {
+        if (s.value === 0) return null;
+        const startA = (acc / total) * 2 * Math.PI - Math.PI / 2;
+        acc += s.value;
+        const endA = (acc / total) * 2 * Math.PI - Math.PI / 2;
+        const x1 = cx + r * Math.cos(startA), y1 = cy + r * Math.sin(startA);
+        const x2 = cx + r * Math.cos(endA),   y2 = cy + r * Math.sin(endA);
+        const large = endA - startA > Math.PI ? 1 : 0;
+        const d = `M${cx} ${cy} L${x1} ${y1} A${r} ${r} 0 ${large} 1 ${x2} ${y2} Z`;
+        return <path key={i} d={d} fill={s.color}><title>{s.label}: {s.value}</title></path>;
+      })}
+      <circle cx={cx} cy={cy} r={r * 0.55} fill="#0a0a0a"/>
+      <text x={cx} y={cy + 4} textAnchor="middle" fontSize="13" fontWeight="600" fill={K.gold}>{total}</text>
+    </svg>
+  );
+}
+
+/* ─── CHARTS DASHBOARD ADMIN ─── */
+function DashboardCharts() {
+  const [data, setData] = useState({ leadGiornalieri: [], fontiLead: [], conversioniMese: [], statoLead: [] });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      const since30 = new Date(Date.now() - 30 * 86400000).toISOString();
+      const since6mesi = new Date(); since6mesi.setMonth(since6mesi.getMonth() - 6);
+      const [{ data: leads30 }, { data: convertiti }, { data: allLeads }] = await Promise.all([
+        supabase.from("leads").select("id,created_at,fonte,stato").gte("created_at", since30),
+        supabase.from("leads").select("convertito_at").not("convertito_at", "is", null).gte("convertito_at", since6mesi.toISOString()),
+        supabase.from("leads").select("stato"),
+      ]);
+
+      // Lead giornalieri ultimi 30gg
+      const giorni = [];
+      for (let i = 29; i >= 0; i--) {
+        const d = new Date(Date.now() - i * 86400000);
+        const key = d.toISOString().split("T")[0];
+        const count = (leads30 || []).filter(l => l.created_at && l.created_at.startsWith(key)).length;
+        giorni.push({ label: d.toLocaleDateString("it-IT", { day: "2-digit", month: "2-digit" }), value: count });
+      }
+
+      // Fonti lead ultimi 30gg
+      const fontiMap = {};
+      (leads30 || []).forEach(l => { const f = l.fonte || "—"; fontiMap[f] = (fontiMap[f] || 0) + 1; });
+      const fonteColors = { "Shoma": "#3a7bd5", "Landing": "#D4A843", "Gmail": "#2a9d6f", "Instagram": "#c0392b", "Facebook": "#1877f2", "—": "#666" };
+      const fontiLead = Object.entries(fontiMap).map(([label, value]) => ({ label, value, color: fonteColors[label] || "#9B8FFF" })).sort((a, b) => b.value - a.value);
+
+      // Conversioni ultimi 6 mesi
+      const mesi = [];
+      for (let i = 5; i >= 0; i--) {
+        const d = new Date(); d.setMonth(d.getMonth() - i); d.setDate(1);
+        const ym = d.toISOString().slice(0, 7);
+        const count = (convertiti || []).filter(c => c.convertito_at && c.convertito_at.startsWith(ym)).length;
+        mesi.push({ label: d.toLocaleDateString("it-IT", { month: "short", year: "2-digit" }), value: count });
+      }
+
+      // Stato lead totale
+      const statoMap = { nuovo: 0, contattato: 0, convertito: 0, scartato: 0 };
+      (allLeads || []).forEach(l => { if (l.stato in statoMap) statoMap[l.stato]++; });
+      const statoColors = { nuovo: K.gold, contattato: "#3a7bd5", convertito: "#2a9d6f", scartato: "#666" };
+      const statoLead = Object.entries(statoMap).map(([k, v]) => ({ label: k, value: v, color: statoColors[k] }));
+
+      setData({ leadGiornalieri: giorni, fontiLead, conversioniMese: mesi, statoLead });
+      setLoading(false);
+    })();
+  }, []);
+
+  if (loading) return <div style={C({textAlign:"center",padding:"1rem",color:K.muted,fontSize:11})}>Caricamento grafici…</div>;
+
+  return (
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>📊 ANDAMENTO</div>
+
+      {/* Lead giornalieri */}
+      <div style={C()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+          <div style={{fontSize:12,color:K.mutedLight,fontWeight:500}}>Lead ultimi 30 giorni</div>
+          <div style={{fontSize:14,color:K.gold,fontWeight:600}}>{data.leadGiornalieri.reduce((s,x)=>s+x.value,0)} tot</div>
+        </div>
+        <MiniBars data={data.leadGiornalieri} color={K.gold} height={50}/>
+        <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:K.muted,marginTop:4}}>
+          <span>{data.leadGiornalieri[0]?.label || ""}</span>
+          <span>oggi</span>
+        </div>
+      </div>
+
+      {/* Distribuzione fonti */}
+      {data.fontiLead.length>0 && (
+        <div style={C()}>
+          <div style={{fontSize:12,color:K.mutedLight,fontWeight:500,marginBottom:10}}>Fonti lead ultimi 30 giorni</div>
+          <div style={{display:"flex",alignItems:"center",gap:14}}>
+            <DonutChart slices={data.fontiLead}/>
+            <div style={{flex:1,display:"flex",flexDirection:"column",gap:5}}>
+              {data.fontiLead.map(f=>(
+                <div key={f.label} style={{display:"flex",alignItems:"center",gap:8,fontSize:12}}>
+                  <div style={{width:10,height:10,borderRadius:2,background:f.color}}/>
+                  <span style={{color:K.white}}>{f.label}</span>
+                  <span style={{color:K.muted,marginLeft:"auto"}}>{f.value}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Conversioni 6 mesi */}
+      {data.conversioniMese.some(m=>m.value>0) && (
+        <div style={C()}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:12,color:K.mutedLight,fontWeight:500}}>Conversioni 6 mesi</div>
+            <div style={{fontSize:14,color:K.success,fontWeight:600}}>{data.conversioniMese.reduce((s,x)=>s+x.value,0)} tot</div>
+          </div>
+          <MiniBars data={data.conversioniMese} color={K.success} height={50}/>
+          <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:K.muted,marginTop:4}}>
+            {data.conversioniMese.map((m,i)=>(<span key={i}>{m.label}</span>))}
+          </div>
+        </div>
+      )}
+
+      {/* Stato lead totale */}
+      <div style={C()}>
+        <div style={{fontSize:12,color:K.mutedLight,fontWeight:500,marginBottom:10}}>Pipeline lead</div>
+        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6}}>
+          {data.statoLead.map(s=>(
+            <div key={s.label} style={{background:"#0e0e0e",borderRadius:8,padding:"8px 6px",textAlign:"center",border:`1px solid ${K.border}`}}>
+              <div style={{fontSize:10,color:K.muted,marginBottom:2,textTransform:"uppercase"}}>{s.label}</div>
+              <div style={{fontSize:16,fontWeight:600,color:s.color}}>{s.value}</div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ─── BANNER NOTIFICHE ─── */
 function BannerNotifiche() {
   const supportato = typeof Notification !== "undefined";
@@ -1518,6 +1683,7 @@ function Dashboard({setTab}) {
           <div style={{fontSize:18,fontWeight:600,color:debitiAttivi>0?K.danger:K.muted}}>{debitiAttivi}</div>
         </div>
       </div>
+      <DashboardCharts/>
       {quasi5.length>0&&(
         <div style={{marginBottom:14}}>
           <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>⚠️ AZIONI RAPIDE</div>
@@ -1870,6 +2036,7 @@ function Settings() {
         {[
           ["templates","Messaggi WhatsApp"],
           ["notifiche","Notifiche"],
+          ["export","Esporta dati"],
           ["account","Account"],
         ].map(([k,lab])=>{
           const active = tab===k;
@@ -1886,6 +2053,7 @@ function Settings() {
       </div>
       {tab==="templates" && <MessageTemplates/>}
       {tab==="notifiche" && <NotificheSettings/>}
+      {tab==="export" && <ExportData/>}
       {tab==="account" && (
         <div style={C({padding:"20px",textAlign:"center"})}>
           <div style={{fontSize:13,color:K.mutedLight,marginBottom:8}}>Gestione account</div>
@@ -1946,6 +2114,101 @@ function NotificheSettings() {
           navigator.clipboard.writeText(url);
           alert("Link copiato!");
         }} style={{...B("ghost"),width:"100%",padding:"10px",fontSize:12}}>📋 Copia link</button>
+      </div>
+    </div>
+  );
+}
+
+function ExportData() {
+  const [exporting, setExporting] = useState(null);
+
+  const csvEscape = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    if (s.includes(",") || s.includes("\"") || s.includes("\n")) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+
+  const downloadCSV = (rows, filename) => {
+    if (!rows || rows.length === 0) { alert("Nessun dato da esportare"); return; }
+    const headers = Object.keys(rows[0]);
+    const csv = [
+      headers.join(","),
+      ...rows.map(r => headers.map(h => csvEscape(r[h])).join(","))
+    ].join("\n");
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const exportLead = async () => {
+    setExporting("lead");
+    const { data } = await supabase.from("leads").select("*").order("created_at",{ascending:false});
+    downloadCSV(data || [], `kendo-lead-${new Date().toISOString().split("T")[0]}.csv`);
+    setExporting(null);
+  };
+
+  const exportClienti = async () => {
+    setExporting("clienti");
+    const { data } = await supabase.from("clienti").select("*").order("cognome");
+    downloadCSV(data || [], `kendo-clienti-${new Date().toISOString().split("T")[0]}.csv`);
+    setExporting(null);
+  };
+
+  const exportBia = async () => {
+    setExporting("bia");
+    const { data } = await supabase.from("bia").select("*, clienti(nome,cognome)").order("data_rilevazione",{ascending:false});
+    const flat = (data || []).map(b => ({
+      ...b,
+      cliente_nome: b.clienti?.nome || "",
+      cliente_cognome: b.clienti?.cognome || "",
+      clienti: undefined,
+    }));
+    downloadCSV(flat, `kendo-bia-${new Date().toISOString().split("T")[0]}.csv`);
+    setExporting(null);
+  };
+
+  return (
+    <div>
+      <div style={{fontSize:12,color:K.mutedLight,marginBottom:14,lineHeight:1.6}}>
+        Scarica i tuoi dati come file CSV. Puoi aprirli in Excel, Numbers o importarli in altri gestionali per backup o analisi.
+      </div>
+
+      <div style={C()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:2,color:K.gold}}>📩 Lead</div>
+            <div style={{fontSize:11,color:K.muted}}>Tutti i lead ricevuti da Gmail, Landing, Shoma</div>
+          </div>
+          <button onClick={exportLead} disabled={exporting==="lead"} style={B("gold",{padding:"8px 14px",fontSize:12})}>{exporting==="lead"?"...":"Esporta"}</button>
+        </div>
+      </div>
+
+      <div style={C()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:2,color:K.gold}}>👥 Clienti</div>
+            <div style={{fontSize:11,color:K.muted}}>Anagrafica completa, pacchetti, sedute, scadenze, valore CRM</div>
+          </div>
+          <button onClick={exportClienti} disabled={exporting==="clienti"} style={B("gold",{padding:"8px 14px",fontSize:12})}>{exporting==="clienti"?"...":"Esporta"}</button>
+        </div>
+      </div>
+
+      <div style={C()}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+          <div>
+            <div style={{fontWeight:600,fontSize:14,marginBottom:2,color:K.gold}}>📊 BIA</div>
+            <div style={{fontSize:11,color:K.muted}}>Storico bioimpedenziometrie con riferimento cliente</div>
+          </div>
+          <button onClick={exportBia} disabled={exporting==="bia"} style={B("gold",{padding:"8px 14px",fontSize:12})}>{exporting==="bia"?"...":"Esporta"}</button>
+        </div>
+      </div>
+
+      <div style={{fontSize:11,color:K.muted,marginTop:12,padding:"10px 12px",background:"#0e0e0e",border:`1px solid ${K.border}`,borderRadius:8,lineHeight:1.5}}>
+        💡 <b>Consiglio CTO</b>: esporta i CSV una volta al mese come backup. In caso di problemi al database, hai sempre una copia recente dei tuoi dati.
       </div>
     </div>
   );
