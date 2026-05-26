@@ -51,6 +51,17 @@ const B = (v="gold", ex={}) => {
 };
 const Tag = (color, bg, border) => ({ background:bg, color, border:`1px solid ${border||bg}`, fontSize:11, fontWeight:500, padding:"3px 9px", borderRadius:20, display:"inline-block", whiteSpace:"nowrap" });
 
+// Colore del pallino di stato cliente (verde/oro/blu/rosso)
+const statusDotColor = (status_crm) => {
+  switch (status_crm) {
+    case "CLIENTE ATTIVO":   return "#2a9d6f";  // verde
+    case "CLIENTE STAND BY": return "#D4A843";  // oro
+    case "FINE PERCORSO":    return "#3a7bd5";  // blu
+    case "CANCELLATO":       return "#c0392b";  // rosso
+    default: return "#2a9d6f";
+  }
+};
+
 /* ─── DATI STATICI ─── */
 const PIANI = [
   {id:"basic",   name:"Basic",    price:"Gratuito",    color:K.mutedLight, features:["Allenamenti effettuati","Sedute rimanenti","Dati BIA","Prenotazioni"]},
@@ -58,8 +69,68 @@ const PIANI = [
   {id:"platinum",name:"Platinum", price:"€14.99/mese", color:K.success,    features:["Tutto Prime","Piano dieta","Check-in"], popular:true},
   {id:"gold",    name:"Gold",     price:"€24.99/mese", color:K.gold,       features:["Tutto Platinum","Trainer dedicato","Sconto 10% rinnovi","Programma custom"]},
 ];
+// Pacchetti Kendo (Listino 2026)
+// Power = EMS · Wellness = Vacufit · Elite = combinato
+const PACKAGES = [
+  // Carnet Power (EMS)
+  { id: "carnet_power_4m",  cat: "power",    nome: "Carnet Power 4 mesi",  sedute: 10, prezzo: 399,  prezzoSed: 40 },
+  { id: "carnet_power_7m",  cat: "power",    nome: "Carnet Power 7 mesi",  sedute: 26, prezzo: 899,  prezzoSed: 35 },
+  { id: "carnet_power_14m", cat: "power",    nome: "Carnet Power 14 mesi", sedute: 50, prezzo: 1499, prezzoSed: 30 },
+  // Carnet Wellness (Vacufit)
+  { id: "carnet_well_4m",   cat: "wellness", nome: "Carnet Wellness 4 mesi",  sedute: 10, prezzo: 270,  prezzoSed: 27 },
+  { id: "carnet_well_7m",   cat: "wellness", nome: "Carnet Wellness 7 mesi",  sedute: 25, prezzo: 599,  prezzoSed: 24 },
+  { id: "carnet_well_14m",  cat: "wellness", nome: "Carnet Wellness 14 mesi", sedute: 50, prezzo: 1059, prezzoSed: 21 },
+  // Carnet Elite
+  { id: "carnet_elite",     cat: "elite",    nome: "Carnet Elite 30 sedute (15 EMS + 15 Vacufit)", sedute: 30, prezzo: 850, prezzoSed: 28.3 },
+  // Open Power
+  { id: "open_power_m",     cat: "power",    nome: "Open Power Mensile",     sedute: 12, prezzo: 299,  prezzoSed: null, open: true },
+  { id: "open_power_s",     cat: "power",    nome: "Open Power Semestrale",  sedute: 72, prezzo: 1599, prezzoSed: null, open: true },
+  { id: "open_power_a",     cat: "power",    nome: "Open Power Annuale",     sedute: 144, prezzo: 2599, prezzoSed: null, open: true },
+  // Open Wellness
+  { id: "open_well_m",      cat: "wellness", nome: "Open Wellness Mensile",     sedute: 12, prezzo: 249,  prezzoSed: null, open: true },
+  { id: "open_well_s",      cat: "wellness", nome: "Open Wellness Semestrale",  sedute: 72, prezzo: 1299, prezzoSed: null, open: true },
+  { id: "open_well_a",      cat: "wellness", nome: "Open Wellness Annuale",     sedute: 144, prezzo: 2299, prezzoSed: null, open: true },
+  // Open Elite
+  { id: "open_elite_m",     cat: "elite",    nome: "Open Elite Mensile",     sedute: 16, prezzo: 349,  prezzoSed: null, open: true },
+  { id: "open_elite_s",     cat: "elite",    nome: "Open Elite Semestrale",  sedute: 96, prezzo: 1799, prezzoSed: null, open: true },
+  { id: "open_elite_a",     cat: "elite",    nome: "Open Elite Annuale",     sedute: 192, prezzo: 2999, prezzoSed: null, open: true },
+  // Singole
+  { id: "singola_power",    cat: "power",    nome: "Seduta singola Power (EMS)",     sedute: 1, prezzo: 50, prezzoSed: 50, single: true },
+  { id: "singola_well",     cat: "wellness", nome: "Seduta singola Wellness (Vacufit)", sedute: 1, prezzo: 30, prezzoSed: 30, single: true },
+];
+const ISCRIZIONE_ANNUALE = 60;
+// Legacy: per retro-compatibilità con i clienti già nel DB con vecchi nomi pacchetto
 const PACK = ["EMS","Vacufit","Combinato EMS+Vacufit"];
 const PACK_SED = {EMS:10, Vacufit:10, "Combinato EMS+Vacufit":20};
+// Helper: trova il pacchetto per nome
+const findPackage = (nome) => PACKAGES.find(p => p.nome === nome || p.id === nome);
+// Orari di apertura del centro (per Agenda)
+const ORARI_APERTURA = {
+  // 0=domenica, 1=lunedi, ..., 6=sabato
+  1: { start: "06:30", end: "21:00" },
+  2: { start: "06:30", end: "21:00" },
+  3: { start: "06:30", end: "21:00" },
+  4: { start: "06:30", end: "21:00" },
+  5: { start: "06:30", end: "21:00" },
+  6: { start: "07:00", end: "13:00" },
+  0: null, // domenica chiuso
+};
+// Genera tutti gli slot 30 minuti per un giorno
+const slotsForDay = (date) => {
+  const dow = date.getDay();
+  const o = ORARI_APERTURA[dow];
+  if (!o) return [];
+  const [sh, sm] = o.start.split(":").map(Number);
+  const [eh, em] = o.end.split(":").map(Number);
+  const slots = [];
+  let h = sh, m = sm;
+  while (h < eh || (h === eh && m < em)) {
+    slots.push(`${String(h).padStart(2,"0")}:${String(m).padStart(2,"0")}`);
+    m += 30;
+    if (m >= 60) { h++; m -= 60; }
+  }
+  return slots;
+};
 const DIETA = [
   {pasto:"Colazione",items:["Avena con frutta","Caffè senza zucchero","2 uova strapazzate"]},
   {pasto:"Spuntino",items:["1 mela","30g mandorle"]},
@@ -312,7 +383,7 @@ export default function App() {
 }
 
 /* ─── LOGIN ─── */
-const ADMIN_PIN = "2810";
+// const ADMIN_PIN = "2810"; // RIMOSSO: ora l'accesso admin è solo email+password
 
 function LoginScreen({onLogin, onReg, onAdminReg}) {
   const [email,setEmail]=useState("");
@@ -347,7 +418,6 @@ function LoginScreen({onLogin, onReg, onAdminReg}) {
   };
 
   const handleAdminLogin = async () => {
-    if(pin !== ADMIN_PIN){setPinError("PIN non valido");return;}
     if(!adminEmail||!adminPass){setPinError("Inserisci email e password admin");return;}
     setLoading(true);setPinError("");
     try {
@@ -369,8 +439,6 @@ function LoginScreen({onLogin, onReg, onAdminReg}) {
       </div>
       {pinError&&<div style={{background:K.dangerBg,border:`1px solid ${K.dangerBorder}`,borderRadius:8,padding:"10px 14px",fontSize:13,color:K.danger,marginBottom:12}}>{pinError}</div>}
       <div style={C({marginBottom:12})}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>PIN SICUREZZA</label>
-        <input type="password" value={pin} onChange={e=>setPin(e.target.value)} placeholder="••••" maxLength={4} style={{marginBottom:14,textAlign:"center",fontSize:20,letterSpacing:8}}/>
         <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>EMAIL ADMIN</label>
         <input value={adminEmail} onChange={e=>setAdminEmail(e.target.value)} placeholder="admin@kendo.it" style={{marginBottom:14}}/>
         <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:6,letterSpacing:1}}>PASSWORD ADMIN</label>
@@ -379,7 +447,7 @@ function LoginScreen({onLogin, onReg, onAdminReg}) {
           {loading?"VERIFICA...":"ACCESSO ADMIN"}
         </button>
       </div>
-      <button onClick={()=>{setShowPin(false);setPin("");setPinError("");}} style={B("ghost",{width:"100%",fontSize:12,marginBottom:12})}>← Torna al login</button>
+      <button onClick={()=>{setShowPin(false);setPinError("");}} style={B("ghost",{width:"100%",fontSize:12,marginBottom:12})}>← Torna al login</button>
       <div style={{textAlign:"center",fontSize:12,color:K.muted}}>Non hai un account admin? <button onClick={onAdminReg} style={{background:"none",border:"none",color:"#9B8FFF",fontSize:12,cursor:"pointer"}}>Registra il tuo centro</button></div>
     </div>
   );
@@ -2139,6 +2207,30 @@ function Clienti({ navTarget }) {
     await supabase.from("clienti").update({pacchetto:pack,sedute_total:tot}).eq("id",id);
     setClienti(p=>p.map(x=>x.id===id?{...x,pacchetto:pack,sedute_total:tot}:x));
   };
+  // Nuovo: usa il listino 2026 (PACKAGES) → imposta sedute, valore_cliente, data_inizio/scadenza
+  const setPacchettoNuovo=async(id,nomePack)=>{
+    if(!nomePack){
+      await supabase.from("clienti").update({pacchetto:null}).eq("id",id);
+      setClienti(p=>p.map(x=>x.id===id?{...x,pacchetto:null}:x));
+      return;
+    }
+    const pack=findPackage(nomePack);
+    if(!pack){
+      // Pacchetto legacy non riconosciuto: aggiorno solo il nome
+      await supabase.from("clienti").update({pacchetto:nomePack}).eq("id",id);
+      setClienti(p=>p.map(x=>x.id===id?{...x,pacchetto:nomePack}:x));
+      return;
+    }
+    const patch={
+      pacchetto: pack.nome,
+      sedute_total: pack.sedute,
+      sedute_usate: 0,
+      data_inizio_pacchetto: new Date().toISOString().split("T")[0],
+      valore_cliente: pack.prezzo,
+    };
+    await supabase.from("clienti").update(patch).eq("id",id);
+    setClienti(p=>p.map(x=>x.id===id?{...x,...patch}:x));
+  };
 
   if(loading)return <Spinner/>;
   if(showAdd)return <FormCliente titolo="Nuovo cliente" f={f} setF={setF} onSalva={aggiungi} onAnnulla={()=>setShowAdd(false)}/>;
@@ -2198,12 +2290,30 @@ function Clienti({ navTarget }) {
           </div>
         </div>
         <div style={C()}>
-          <div style={{fontWeight:500,marginBottom:10,fontSize:13}}>PACCHETTO</div>
-          <div style={{display:"flex",gap:6,marginBottom:12}}>
-            {PACK.map(p=>(
-              <button key={p} onClick={()=>setPacchetto(c.id,p)} style={{...B(c.pacchetto===p?"gold":"ghost",{flex:1,padding:"8px 4px",fontSize:11})}}>{p.replace("Combinato ","")}</button>
-            ))}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+            <div style={{fontWeight:500,fontSize:13}}>PACCHETTO</div>
+            {findPackage(c.pacchetto) && <span style={{fontSize:11,color:K.gold,fontWeight:600}}>€{findPackage(c.pacchetto).prezzo}</span>}
           </div>
+          <select value={c.pacchetto||""} onChange={e=>setPacchettoNuovo(c.id, e.target.value)}
+            style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:8}}>
+            <option value="">— Nessun pacchetto attivo —</option>
+            <optgroup label="⚡ Power (EMS)">
+              {PACKAGES.filter(p => p.cat === "power").map(p => <option key={p.id} value={p.nome}>{p.nome} · {p.sedute} sed. · €{p.prezzo}</option>)}
+            </optgroup>
+            <optgroup label="🌀 Wellness (Vacufit)">
+              {PACKAGES.filter(p => p.cat === "wellness").map(p => <option key={p.id} value={p.nome}>{p.nome} · {p.sedute} sed. · €{p.prezzo}</option>)}
+            </optgroup>
+            <optgroup label="✨ Elite">
+              {PACKAGES.filter(p => p.cat === "elite").map(p => <option key={p.id} value={p.nome}>{p.nome} · {p.sedute} sed. · €{p.prezzo}</option>)}
+            </optgroup>
+            {/* Retrocompatibilità con vecchi pacchetti */}
+            {c.pacchetto && !findPackage(c.pacchetto) && <option value={c.pacchetto}>{c.pacchetto} (legacy)</option>}
+          </select>
+          {findPackage(c.pacchetto) && (
+            <div style={{fontSize:10,color:K.muted,marginBottom:12,padding:"6px 10px",background:"#0e0e0e",borderRadius:6}}>
+              €{findPackage(c.pacchetto).prezzoSed?.toFixed(2) || "—"}/seduta · {findPackage(c.pacchetto).open ? "Open (libero)" : "Carnet"} · + iscrizione €{ISCRIZIONE_ANNUALE}/anno
+            </div>
+          )}
           <div style={{fontWeight:500,marginBottom:10,fontSize:13}}>SEDUTE</div>
           <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:10}}>
             <div style={{flex:1,height:4,background:"#1a1a1a",borderRadius:2,overflow:"hidden"}}><div style={{height:"100%",width:`${tot>0?(usate/tot)*100:0}%`,background:res<=3?K.danger:K.gold,borderRadius:2}}/></div>
@@ -2359,7 +2469,10 @@ function ClientiList({ clienti, onSelect, onAdd, searchTerm, setSearchTerm }) {
         return(
           <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>onSelect(c.id)}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
+              <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0,position:"relative"}}>
+                {(c.nome||"?")[0]}{(c.cognome||"?")[0]}
+                <span title={c.status_crm||"CLIENTE ATTIVO"} style={{position:"absolute",bottom:-1,right:-1,width:11,height:11,borderRadius:"50%",background:statusDotColor(c.status_crm),border:`2px solid ${K.black}`}}/>
+              </div>
               <div style={{flex:1,minWidth:0}}>
                 <div style={{fontWeight:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.nome||""} {c.cognome||""}</div>
                 <div style={{fontSize:11,color:K.muted,marginTop:2,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{c.pacchetto||"—"} · {c.email||c.telefono||"—"}</div>
@@ -3838,26 +3951,78 @@ function Agenda() {
         </div>
       )}
 
-      {/* Dettaglio giorno selezionato */}
-      <div style={{ fontSize:11, color:K.muted, margin:"14px 0 10px", letterSpacing:0.5 }}>
-        {fmtDate(day).toUpperCase()} — {dayP.length} {dayP.length === 1 ? "SESSIONE" : "SESSIONI"}
+      {/* Dettaglio giorno selezionato con TUTTI gli slot orari */}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"14px 0 10px" }}>
+        <div style={{ fontSize:11, color:K.muted, letterSpacing:0.5 }}>
+          {fmtDate(day).toUpperCase()} — {dayP.length}/{slotsForDay(new Date(day)).length} SLOT OCCUPATI
+        </div>
       </div>
-      {dayP.length === 0 ? <div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessuna prenotazione</div> :
-        dayP.map(p => (
-          <div key={p.id} style={C()}>
-            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-              <div>
-                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                  <span style={{ fontWeight:600, fontSize:15, color:K.gold }}>{p.ora}</span>
-                  <span style={Tag(p.tipo === "EMS" ? "#6BBEFC" : "#B88EFF", p.tipo === "EMS" ? "#08101e" : "#100e1e")}>{p.tipo}</span>
-                </div>
-                <div style={{ fontSize:13, color:K.mutedLight }}>{getNome(p.user_id)}</div>
-              </div>
-              <button onClick={() => cancella(p.id)} style={B("danger",{padding:"6px 10px",fontSize:12})}>✕</button>
+      {(()=>{
+        const slots = slotsForDay(new Date(day));
+        if (slots.length === 0) {
+          return <div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>🚫 Centro chiuso questo giorno</div>;
+        }
+        return (
+          <div style={C({padding:"10px"})}>
+            <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill, minmax(110px, 1fr))", gap:4 }}>
+              {slots.map(slot => {
+                const occupati = dayP.filter(p => (p.ora||"").startsWith(slot));
+                const occ = occupati.length;
+                return (
+                  <div key={slot} style={{
+                    background: occ > 0 ? K.goldBg : "#0e0e0e",
+                    border: `1px solid ${occ > 0 ? K.goldBorder : K.border}`,
+                    borderRadius: 6, padding:"6px 8px", minHeight: 36,
+                    display:"flex", flexDirection:"column", justifyContent:"center",
+                  }}>
+                    <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                      <span style={{ fontSize:11, fontWeight:600, color: occ > 0 ? K.gold : K.muted }}>{slot}</span>
+                      {occ > 0 && <span style={{ fontSize:10, color:K.gold, fontWeight:700, background:"#0a0a0a", borderRadius:8, padding:"1px 6px" }}>{occ}</span>}
+                    </div>
+                    {occupati.slice(0,2).map(p => (
+                      <div key={p.id} style={{ fontSize:9, color:K.mutedLight, marginTop:2, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>
+                        {p.tipo === "EMS" ? "⚡" : "🌀"} {getNome(p.user_id).split(" ")[0]}
+                      </div>
+                    ))}
+                    {occ > 2 && <div style={{ fontSize:9, color:K.muted, marginTop:1 }}>+ {occ-2}</div>}
+                  </div>
+                );
+              })}
             </div>
           </div>
-        ))
-      }
+        );
+      })()}
+
+      {/* Lista dettaglio prenotazioni */}
+      {dayP.length > 0 && (
+        <>
+          <div style={{ fontSize:11, color:K.muted, margin:"14px 0 10px", letterSpacing:0.5 }}>DETTAGLIO PRENOTAZIONI</div>
+          {dayP.map(p => (
+            <div key={p.id} style={C()}>
+              <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                <div>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <span style={{ fontWeight:600, fontSize:15, color:K.gold }}>{p.ora}</span>
+                    <span style={Tag(p.tipo === "EMS" ? "#6BBEFC" : "#B88EFF", p.tipo === "EMS" ? "#08101e" : "#100e1e")}>{p.tipo}</span>
+                  </div>
+                  <div style={{ fontSize:13, color:K.mutedLight }}>{getNome(p.user_id)}</div>
+                </div>
+                <button onClick={() => cancella(p.id)} style={B("danger",{padding:"6px 10px",fontSize:12})}>✕</button>
+              </div>
+            </div>
+          ))}
+        </>
+      )}
+
+      {/* Legenda orari */}
+      <div style={C({marginTop:14,padding:"10px 12px"})}>
+        <div style={{ fontSize:10, color:K.muted, letterSpacing:1, marginBottom:6 }}>ORARI DI APERTURA</div>
+        <div style={{ fontSize:11, color:K.mutedLight, lineHeight:1.6 }}>
+          Lun-Ven: 06:30 — 21:00<br/>
+          Sabato: 07:00 — 13:00<br/>
+          Domenica: chiuso
+        </div>
+      </div>
     </div>
   );
 }
