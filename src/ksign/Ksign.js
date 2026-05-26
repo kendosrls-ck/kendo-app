@@ -2,11 +2,7 @@
 // Mostra: statistiche richieste firma, lista filtrabile, drawer creazione nuova richiesta
 
 import { useState, useEffect, useCallback } from "react";
-import { createClient } from "@supabase/supabase-js";
-
-const SUPABASE_URL = process.env.REACT_APP_SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.REACT_APP_SUPABASE_ANON_KEY;
-const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+import { supabase as sb } from "../App";
 
 // Palette (allineata al brand Kendo)
 const K = {
