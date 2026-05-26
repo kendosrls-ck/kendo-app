@@ -1495,7 +1495,7 @@ function Dashboard({setTab}) {
       supabase.from("clienti").select("*"),
       supabase.from("followup").select("*"),
       supabase.from("prenotazioni").select("*").eq("data",oggi).eq("stato","confermata"),
-      supabase.from("leads").select("id,stato").eq("stato","nuovo"),
+      supabase.from("leads").select("id,stato,letto").eq("stato","nuovo").eq("letto", false),
       supabase.from("prenotazioni").select("*").eq("data",domani).eq("stato","confermata"),
     ]).then(([{data:c},{data:f},{data:p},{data:lN},{data:pD}])=>{
       setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLeadsNuovi(lN||[]);setPrenDomani(pD||[]);setLoading(false);
