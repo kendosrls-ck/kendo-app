@@ -2322,6 +2322,7 @@ function Settings() {
         {[
           ["templates","Messaggi WhatsApp"],
           ["notifiche","Notifiche"],
+          ["bulk","Import documenti"],
           ["export","Esporta dati"],
           ["account","Account"],
         ].map(([k,lab])=>{
@@ -2339,6 +2340,7 @@ function Settings() {
       </div>
       {tab==="templates" && <MessageTemplates/>}
       {tab==="notifiche" && <NotificheSettings/>}
+      {tab==="bulk" && <BulkDocumenti/>}
       {tab==="export" && <ExportData/>}
       {tab==="account" && (
         <div style={C({padding:"20px",textAlign:"center"})}>
@@ -2401,6 +2403,175 @@ function NotificheSettings() {
           alert("Link copiato!");
         }} style={{...B("ghost"),width:"100%",padding:"10px",fontSize:12}}>📋 Copia link</button>
       </div>
+    </div>
+  );
+}
+
+function BulkDocumenti() {
+  const [tipo, setTipo] = useState("certificato_medico");
+  const [items, setItems] = useState([]); // {file, status, dati, cliente, err}
+  const [processing, setProcessing] = useState(false);
+  const [clienti, setClienti] = useState([]);
+
+  useEffect(() => {
+    supabase.from("clienti").select("id,nome,cognome,scadenza_certificato_medico,scadenza_iscrizione").then(({data}) => setClienti(data || []));
+  }, []);
+
+  const norm = (s) => (s || "").toLowerCase().replace(/[^a-z]/g, "");
+
+  const matchCliente = (nome, cognome) => {
+    const ncog = norm(cognome);
+    const nnom = norm(nome);
+    if (!ncog && !nnom) return null;
+    // Match preciso su cognome+nome, poi solo cognome
+    let m = clienti.find(c => norm(c.cognome) === ncog && norm(c.nome) === nnom);
+    if (m) return m;
+    if (ncog.length >= 3) {
+      const cands = clienti.filter(c => norm(c.cognome) === ncog);
+      if (cands.length === 1) return cands[0];
+    }
+    return null;
+  };
+
+  const onFiles = (fileList) => {
+    const arr = Array.from(fileList).map((file) => ({
+      id: Math.random().toString(36).slice(2, 9),
+      file,
+      status: "pending",
+      dati: null, cliente: null, err: null,
+    }));
+    setItems(prev => [...prev, ...arr]);
+  };
+
+  const elabora = async () => {
+    setProcessing(true);
+    for (const item of items) {
+      if (item.status !== "pending") continue;
+      setItems(p => p.map(x => x.id === item.id ? { ...x, status: "loading" } : x));
+      try {
+        const reader = new FileReader();
+        const b64 = await new Promise((res, rej) => {
+          reader.onload = () => res((reader.result || "").split(",")[1]);
+          reader.onerror = rej;
+          reader.readAsDataURL(item.file);
+        });
+        const r = await fetch("/api/documento-vision", {
+          method: "POST", headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({ fileBase64: b64, mediaType: item.file.type, tipo }),
+        });
+        const j = await r.json();
+        if (!r.ok || !j.ok) {
+          setItems(p => p.map(x => x.id === item.id ? { ...x, status: "error", err: j.error || ("HTTP "+r.status) } : x));
+          continue;
+        }
+        const dati = j.dati || {};
+        const cl = matchCliente(dati.nome, dati.cognome);
+        setItems(p => p.map(x => x.id === item.id ? { ...x, status: "ready", dati, cliente: cl } : x));
+      } catch (e) {
+        setItems(p => p.map(x => x.id === item.id ? { ...x, status: "error", err: e.message } : x));
+      }
+    }
+    setProcessing(false);
+  };
+
+  const conferma = async (item) => {
+    if (!item.cliente || !item.dati?.data_scadenza) return;
+    const patch = tipo === "iscrizione"
+      ? { scadenza_iscrizione: item.dati.data_scadenza }
+      : { scadenza_certificato_medico: item.dati.data_scadenza };
+    const { error } = await supabase.from("clienti").update(patch).eq("id", item.cliente.id);
+    if (error) { alert("Errore: " + error.message); return; }
+    setItems(p => p.map(x => x.id === item.id ? { ...x, status: "saved" } : x));
+  };
+
+  const confermaTuttiOk = async () => {
+    const pronti = items.filter(x => x.status === "ready" && x.cliente && x.dati?.data_scadenza);
+    if (pronti.length === 0) return;
+    if (!window.confirm(`Aggiornare ${pronti.length} clienti?`)) return;
+    for (const item of pronti) await conferma(item);
+  };
+
+  const rimuoviSalvati = () => setItems(p => p.filter(x => x.status !== "saved"));
+
+  const statusBadge = (s) => {
+    const map = {
+      pending: { lab: "in attesa", col: K.muted },
+      loading: { lab: "elaboro...", col: K.gold },
+      ready: { lab: "pronto", col: K.gold },
+      saved: { lab: "✓ salvato", col: K.success },
+      error: { lab: "errore", col: K.danger },
+    };
+    return map[s] || map.pending;
+  };
+
+  const fmtIT = s => s ? new Date(s).toLocaleDateString("it-IT") : "—";
+
+  const pronti = items.filter(x => x.status === "ready" && x.cliente && x.dati?.data_scadenza).length;
+
+  return (
+    <div>
+      <div style={{ fontSize:12, color:K.mutedLight, marginBottom:14, lineHeight:1.6 }}>
+        Carica più certificati/iscrizioni insieme. L'IA estrae i dati e prova a fare match automatico con i clienti per cognome+nome. Tu confermi.
+      </div>
+
+      <div style={C()}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+          <select value={tipo} onChange={e => setTipo(e.target.value)}>
+            <option value="certificato_medico">Certificato medico</option>
+            <option value="iscrizione">Tessera iscrizione</option>
+          </select>
+          <div style={{ fontSize:11, color:K.muted }}>{items.length} file caricati</div>
+        </div>
+
+        <label style={{ display:"block", padding:"24px 12px", border:`2px dashed ${K.goldBorder}`, borderRadius:8, textAlign:"center", cursor:"pointer", background:K.goldBg }}>
+          <div style={{ fontSize:30, marginBottom:6 }}>📁</div>
+          <div style={{ fontSize:13, color:K.gold, fontWeight:600 }}>Trascina qui i file o clicca per selezionarli</div>
+          <div style={{ fontSize:11, color:K.muted, marginTop:4 }}>JPG, PNG o PDF · max 8MB ciascuno</div>
+          <input type="file" multiple accept="image/*,application/pdf" onChange={e => onFiles(e.target.files)} style={{ display:"none" }}/>
+        </label>
+
+        {items.length > 0 && (
+          <div style={{ display:"flex", gap:8, marginTop:12 }}>
+            <button onClick={elabora} disabled={processing || items.every(x => x.status !== "pending")} style={{...B("gold",{flex:1,padding:"10px",fontSize:12})}}>
+              {processing ? "⏳ Elaborazione..." : `🤖 Elabora ${items.filter(x=>x.status==="pending").length} file con IA`}
+            </button>
+            {pronti > 0 && <button onClick={confermaTuttiOk} style={{...B("success",{padding:"10px 14px",fontSize:12})}}>✓ Salva tutti ({pronti})</button>}
+            {items.some(x => x.status === "saved") && <button onClick={rimuoviSalvati} style={{...B("ghost",{padding:"10px 14px",fontSize:12})}}>Pulisci salvati</button>}
+          </div>
+        )}
+      </div>
+
+      {items.map(item => {
+        const sb = statusBadge(item.status);
+        return (
+          <div key={item.id} style={C({padding:"10px 12px"})}>
+            <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom: item.status === "ready" ? 8 : 0 }}>
+              <div style={{ flex:1, minWidth:0 }}>
+                <div style={{ fontSize:13, color:K.white, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.file.name}</div>
+                <div style={{ fontSize:11, color:sb.col, marginTop:2, fontWeight:600 }}>{sb.lab}</div>
+              </div>
+            </div>
+            {item.status === "ready" && (
+              <div style={{ padding:"8px 10px", background:"#0e0e0e", border:`1px solid ${K.border}`, borderRadius:6, fontSize:11 }}>
+                <div style={{ display:"grid", gridTemplateColumns:"auto 1fr", gap:"4px 10px", color:K.mutedLight }}>
+                  <span style={{ color:K.muted }}>Nome dal documento:</span><span style={{ color:K.white }}>{item.dati?.nome || "—"} {item.dati?.cognome || ""}</span>
+                  <span style={{ color:K.muted }}>Scadenza:</span><span style={{ color:item.dati?.data_scadenza ? K.gold : K.danger, fontWeight:600 }}>{fmtIT(item.dati?.data_scadenza)}</span>
+                  <span style={{ color:K.muted }}>Match cliente:</span>
+                  {item.cliente
+                    ? <span style={{ color:K.success, fontWeight:600 }}>✓ {item.cliente.nome} {item.cliente.cognome}</span>
+                    : <span style={{ color:K.danger }}>nessun match — inserisci manualmente dalla scheda</span>}
+                </div>
+                {item.cliente && item.dati?.data_scadenza && (
+                  <button onClick={() => conferma(item)} style={{...B("gold",{width:"100%",padding:"7px",fontSize:11,marginTop:8})}}>💾 Aggiorna {item.cliente.cognome}</button>
+                )}
+              </div>
+            )}
+            {item.status === "error" && (
+              <div style={{ padding:"6px 10px", background:K.dangerBg, border:`1px solid ${K.dangerBorder}`, borderRadius:6, fontSize:11, color:K.danger, marginTop:6 }}>{item.err}</div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
