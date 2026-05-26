@@ -242,7 +242,7 @@ export default function App() {
   },[]);
 
   const userNav=[{id:"home",icon:"○",label:"Home"},{id:"prenota",icon:"◷",label:"Prenota"},{id:"bia",icon:"◈",label:"BIA"},{id:"dieta",icon:"◉",label:"Dieta"},{id:"chat",icon:"◎",label:"AI"}];
-  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"chat",icon:"◎",label:"AI"}];
+  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"firme",icon:"✎",label:"Firme"},{id:"chat",icon:"◎",label:"AI"},{id:"settings",icon:"⚙",label:"Impostazioni"}];
   const nav = role==="admin"?adminNav:userNav;
 
   const handleLogin = (r, prof, user) => {

@@ -312,9 +312,9 @@ function NewRequestDrawer({ type, templates, clienti, onClose, onCreated }) {
       payload.dati_compilati = { pacchetto, importo: imp, metodo_pagamento: pagamento };
     }
     setSubmitting(true);
-    const { data, error: e } = await sb.from("ksign_richiesta").insert(payload).select().single();
+    const { data, error: err } = await sb.from("ksign_richiesta").insert(payload).select().single();
     setSubmitting(false);
-    if (e) { setError("Errore: " + e.message); return; }
+    if (err) { setError("Errore: " + err.message); return; }
     await sb.from("ksign_audit_log").insert({
       richiesta_id: data.id, evento: "request_created",
       descrizione: "Richiesta creata da staff Kendo App",
