@@ -116,7 +116,44 @@ export default function Ksign() {
     if (!token) return;
     const link = `${window.location.origin}/firma/${encodeURIComponent(token)}`;
     if (navigator.clipboard) navigator.clipboard.writeText(link);
-    showToast("Link copiato", "Pronto da incollare su WhatsApp");
+    showToast("Link copiato", "Pronto da incollare");
+  };
+
+  // Apre il client email con messaggio precompilato per la richiesta firma
+  const inviaEmail = (r) => {
+    if (!r.firmatario_email) { alert("Manca l'email del cliente. Aggiungila prima."); return; }
+    const link = `${window.location.origin}/firma/${encodeURIComponent(r.token_pubblico)}`;
+    const tipoDoc = (r.template_codici || []).includes("contratto_fitgo") && (r.template_codici || []).includes("liberatoria_fitgo")
+      ? "il contratto e la liberatoria"
+      : (r.template_codici || []).includes("contratto_fitgo") ? "il contratto"
+      : "la liberatoria";
+    const subject = `Firma documenti Fit And Go Padova - ${r.firmatario_nome || ""}`;
+    const body = `Ciao ${r.firmatario_nome || ""},\n\nti invio il link per firmare ${tipoDoc} dell'iscrizione al centro Fit And Go Padova.\n\n${link}\n\nIl link è personale e valido per la sola firma di questi documenti. La firma si fa direttamente dal telefono in pochi minuti.\n\nSe hai dubbi rispondi a questa email o chiamaci.\n\nA presto,\nFit And Go Padova`;
+    const mailto = `mailto:${encodeURIComponent(r.firmatario_email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = mailto;
+  };
+
+  // Apre WhatsApp con messaggio precompilato (link nel testo)
+  const inviaWhatsApp = (r) => {
+    const tel = (r.firmatario_telefono || "").replace(/[^0-9+]/g, "").replace(/^\+/, "");
+    let cleaned = tel;
+    if (cleaned.startsWith("0039")) cleaned = cleaned.slice(4);
+    if (cleaned.startsWith("39") && cleaned.length >= 11) cleaned = cleaned.slice(2);
+    if (cleaned.startsWith("0")) cleaned = cleaned.slice(1);
+    if (!cleaned) { alert("Manca il telefono del cliente."); return; }
+    const link = `${window.location.origin}/firma/${encodeURIComponent(r.token_pubblico)}`;
+    const tipoDoc = (r.template_codici || []).includes("contratto_fitgo") && (r.template_codici || []).includes("liberatoria_fitgo")
+      ? "il contratto e la liberatoria"
+      : (r.template_codici || []).includes("contratto_fitgo") ? "il contratto"
+      : "la liberatoria";
+    const text = `Ciao ${r.firmatario_nome || ""}! 😊\n\nTi mando il link per firmare ${tipoDoc} dell'iscrizione al centro Fit And Go Padova ⚡\n\n${link}\n\nLa firma si fa direttamente dal telefono, ci vogliono pochi minuti. 💪`;
+    // Backup clipboard
+    try { navigator.clipboard?.writeText(text); } catch (_) {}
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const url = isMobile
+      ? `https://wa.me/39${cleaned}?text=${encodeURIComponent(text)}`
+      : `https://web.whatsapp.com/send?phone=39${cleaned}&text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   return (
@@ -189,10 +226,24 @@ export default function Ksign() {
                   <div style={{ fontSize: 11, color: K.muted }}>{(r.template_codici || []).join(" + ")} · {new Date(r.created_at).toLocaleString("it-IT", {day:"2-digit", month:"short", hour:"2-digit", minute:"2-digit"})}</div>
                 </div>
                 <StatusBadge stato={r.stato} />
-                <button onClick={() => copyLink(r.token_pubblico)}
-                  style={{ background: "transparent", color: K.gold, border: `1px solid ${K.goldDim}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
-                  Copia link
-                </button>
+                <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
+                  {r.firmatario_email && (
+                    <button onClick={() => inviaEmail(r)} title="Invia per email"
+                      style={{ background: "transparent", color: K.gold, border: `1px solid ${K.goldDim}`, borderRadius: 6, padding: "5px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      📧
+                    </button>
+                  )}
+                  {r.firmatario_telefono && (
+                    <button onClick={() => inviaWhatsApp(r)} title="Invia per WhatsApp"
+                      style={{ background: "transparent", color: K.gold, border: `1px solid ${K.goldDim}`, borderRadius: 6, padding: "5px 8px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                      💬
+                    </button>
+                  )}
+                  <button onClick={() => copyLink(r.token_pubblico)} title="Copia link"
+                    style={{ background: "transparent", color: K.gold, border: `1px solid ${K.goldDim}`, borderRadius: 6, padding: "5px 10px", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>
+                    📋 Copia
+                  </button>
+                </div>
               </div>
             ))}
           </div>
