@@ -87,6 +87,8 @@ export default function LeadAdmin({ navTarget }) {
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState(null);
   const [savingId, setSavingId] = useState(null);
+  const [selected, setSelected] = useState(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
   useEffect(() => {
     if (navTarget && navTarget.tab === "lead" && navTarget.id) {
       setSel(navTarget.id);
@@ -142,6 +144,49 @@ export default function LeadAdmin({ navTarget }) {
     const at = new Date().toISOString();
     await supabase.from("leads").update({ letto: true, letto_at: at }).in("id", nonLetti);
     setLeads(prev => prev.map(l => nonLetti.includes(l.id) ? { ...l, letto: true, letto_at: at } : l));
+  };
+
+  const toggleSel = (id) => {
+    setSelected(prev => {
+      const n = new Set(prev);
+      if (n.has(id)) n.delete(id); else n.add(id);
+      return n;
+    });
+  };
+  const clearSel = () => setSelected(new Set());
+  const selectAllVisible = () => setSelected(new Set(filtered.map(l => l.id)));
+
+  const bulkMarkLetti = async () => {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const at = new Date().toISOString();
+    await supabase.from("leads").update({ letto: true, letto_at: at }).in("id", ids);
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, letto: true, letto_at: at } : l));
+    clearSel();
+    setBulkBusy(false);
+  };
+
+  const bulkScarta = async () => {
+    if (selected.size === 0) return;
+    if (!window.confirm(`Scartare ${selected.size} lead selezionati?`)) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    await supabase.from("leads").update({ stato: "scartato" }).in("id", ids);
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, stato: "scartato" } : l));
+    clearSel();
+    setBulkBusy(false);
+  };
+
+  const bulkContattati = async () => {
+    if (selected.size === 0) return;
+    setBulkBusy(true);
+    const ids = Array.from(selected);
+    const at = new Date().toISOString();
+    await supabase.from("leads").update({ stato: "contattato", contattato_at: at, letto: true, letto_at: at }).in("id", ids);
+    setLeads(prev => prev.map(l => ids.includes(l.id) ? { ...l, stato: "contattato", contattato_at: at, letto: true, letto_at: at } : l));
+    clearSel();
+    setBulkBusy(false);
   };
 
   if (loading) return (
@@ -255,6 +300,19 @@ export default function LeadAdmin({ navTarget }) {
         </div>
       </div>
 
+      {/* BARRA AZIONI BULK (visibile quando ≥1 lead selezionato) */}
+      {selected.size > 0 && (
+        <div style={{position:"sticky",top:0,zIndex:50,background:K.goldBg,border:`1px solid ${K.gold}`,borderRadius:8,padding:"10px 12px",marginBottom:10,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+          <span style={{fontSize:13,color:K.gold,fontWeight:600,marginRight:4}}>{selected.size} selezionati</span>
+          <button onClick={bulkMarkLetti} disabled={bulkBusy} style={B("ghost",{padding:"6px 10px",fontSize:11})}>✓ Letti</button>
+          <button onClick={bulkContattati} disabled={bulkBusy} style={B("info",{padding:"6px 10px",fontSize:11})}>📞 Contattati</button>
+          <button onClick={bulkScarta} disabled={bulkBusy} style={B("danger",{padding:"6px 10px",fontSize:11})}>🗑 Scarta</button>
+          <div style={{flex:1}}/>
+          <button onClick={selectAllVisible} style={B("ghost",{padding:"6px 10px",fontSize:11})}>Tutti visibili</button>
+          <button onClick={clearSel} style={B("ghost",{padding:"6px 10px",fontSize:11})}>Annulla</button>
+        </div>
+      )}
+
       {/* Filtri stato */}
       <div style={{display:"flex",gap:6,marginBottom:10,overflowX:"auto",paddingBottom:4}}>
         {[["nonletti","Da leggere"],["nuovo","Nuovi"],["contattato","Contattati"],["convertito","Convertiti"],["scartato","Scartati"],["tutti","Tutti"]].map(([k,lab])=>{
@@ -290,8 +348,11 @@ export default function LeadAdmin({ navTarget }) {
         const sc = STATO_COLORS[l.stato] || STATO_COLORS.nuovo;
         const tel = waTel(l);
         return (
-          <div key={l.id} onClick={()=>apriDettaglio(l.id)} style={C({cursor:"pointer",border:`1px solid ${sc.bd}`,position:"relative"})}>
+          <div key={l.id} style={C({cursor:"pointer",border:`1px solid ${selected.has(l.id)?K.gold:sc.bd}`,position:"relative",background:selected.has(l.id)?K.goldBg:undefined})}>
             <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+              <input type="checkbox" checked={selected.has(l.id)} onChange={(e)=>{e.stopPropagation();toggleSel(l.id);}} onClick={(e)=>e.stopPropagation()}
+                style={{width:18,height:18,accentColor:K.gold,cursor:"pointer",flexShrink:0}}/>
+              <div onClick={()=>apriDettaglio(l.id)} style={{display:"flex",alignItems:"center",gap:10,flex:1,minWidth:0}}>
               <div style={{
                 width:36,height:36,borderRadius:"50%",
                 background:sc.bg,border:`1px solid ${sc.bd}`,
@@ -311,6 +372,7 @@ export default function LeadAdmin({ navTarget }) {
                 </div>
               </div>
               <span style={Tag(sc.fg, sc.bg, sc.bd)}>{l.stato}</span>
+              </div>
             </div>
             {(l.cellulare || l.email) && (
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>

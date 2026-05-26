@@ -3057,7 +3057,7 @@ function ClienteBia({clienteId, cliente}) {
           <button onClick={()=>setShowForm(true)} style={B("gold",{padding:"5px 10px",fontSize:11})}>+ Nuova</button>
         </div>
       </div>
-      {storia.length >= 2 && <BIATrendChart storia={storia}/>}
+      {storia.length >= 2 && <BIATrendChart storia={storia} clienteNome={cliente ? `${cliente.nome||""} ${cliente.cognome||""}`.trim() : ""}/>}
       {!bia ? <div style={{fontSize:12,color:K.muted}}>Nessuna rilevazione BIA</div> : (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
           {[
