@@ -25,5 +25,14 @@
   <body class="notranslate">
     <noscript>Per usare Kendo devi abilitare JavaScript nel tuo browser.</noscript>
     <div id="root"><div id="kendo-pre-loader"><div class="ring"></div></div></div>
+    <script>
+      // Service Worker registration: necessario per installazione PWA su Android
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/service-worker.js')
+            .catch(function (e) { console.log('SW registration failed:', e); });
+        });
+      }
+    </script>
   </body>
 </html>
