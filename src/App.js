@@ -1338,6 +1338,31 @@ function renderTemplate(corpo, vars) {
   return corpo.replace(/\{(\w+)\}/g, (m, k) => vars[k] != null ? String(vars[k]) : m);
 }
 
+// Custom hook centralizzato: ritorna le 4 funzioni testo messaggi WhatsApp
+// (con template DB se disponibili + fallback hardcoded). Da usare in qualsiasi componente
+// che ha bisogno di generare i testi messaggio (Dashboard, Clienti, FollowUp, ecc.)
+function useMessageTexts() {
+  const tpl = useTemplates();
+  const vars = (c) => ({
+    nome: c?.nome || "",
+    cognome: c?.cognome || "",
+    sedute_residue: (c?.sedute_total || 0) - (c?.sedute_usate || 0),
+  });
+  const textBia = (c) => tpl.bia_invito
+    ? renderTemplate(tpl.bia_invito, vars(c))
+    : `Ciao ${c?.nome || ""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
+  const textRinnovo = (c) => tpl.rinnovo_proposta
+    ? renderTemplate(tpl.rinnovo_proposta, vars(c))
+    : `Ciao ${c?.nome || ""}! 🏆 Mancano solo ${(c?.sedute_total || 0) - (c?.sedute_usate || 0)} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;
+  const text5Sedute = (c) => tpl.cinque_sedute
+    ? renderTemplate(tpl.cinque_sedute, vars(c))
+    : `Ciao ${c?.nome || ""}! 👋\n\nTi aggiorno: ti restano 5 sedute del tuo pacchetto. Continuiamo a lavorare insieme per arrivare al tuo obiettivo! 💪\n\nQuando ci vediamo per la prossima? Possiamo organizzare anche un piccolo controllo della tua composizione corporea per misurare i progressi 📊`;
+  const textRegolamento = (c) => tpl.regolamento
+    ? renderTemplate(tpl.regolamento, vars(c))
+    : `Ciao ${c?.nome || ""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
+  return { textBia, textRinnovo, text5Sedute, textRegolamento };
+}
+
 /* ─── SEARCH GLOBALE (admin) ─── */
 function GlobalSearch({ onNavigate }) {
   const [q, setQ] = useState("");
@@ -1565,7 +1590,7 @@ function Dashboard({setTab}) {
   },[]);
 
   // HOOK: deve essere chiamato PRIMA di qualsiasi return condizionale (regola React)
-  const tpl = useTemplates();
+  const { textBia, textRinnovo, text5Sedute, textRegolamento } = useMessageTexts();
 
   if(loading)return <Spinner/>;
 
@@ -1599,21 +1624,7 @@ function Dashboard({setTab}) {
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  // Testi dei messaggi WhatsApp: usano i template del DB se disponibili (modificabili da Impostazioni),
-  // altrimenti fallback al testo hardcoded.
-  const vars = (c, extra) => ({ nome: c?.nome || "", cognome: c?.cognome || "", sedute_residue: (c?.sedute_total||0)-(c?.sedute_usate||0), ...extra });
-  const textBia=(c)=> tpl.bia_invito
-    ? renderTemplate(tpl.bia_invito, vars(c))
-    : `Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
-  const textRinnovo=(c)=> tpl.rinnovo_proposta
-    ? renderTemplate(tpl.rinnovo_proposta, vars(c))
-    : `Ciao ${c?.nome||""}! 🏆 Mancano solo ${(c?.sedute_total||0)-(c?.sedute_usate||0)} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;
-  const text5Sedute=(c)=> tpl.cinque_sedute
-    ? renderTemplate(tpl.cinque_sedute, vars(c))
-    : `Ciao ${c?.nome||""}! 👋\n\nTi aggiorno: ti restano 5 sedute del tuo pacchetto. Continuiamo a lavorare insieme per arrivare al tuo obiettivo! 💪\n\nQuando ci vediamo per la prossima? Possiamo organizzare anche un piccolo controllo della tua composizione corporea per misurare i progressi 📊`;
-  const textRegolamento=(c)=> tpl.regolamento
-    ? renderTemplate(tpl.regolamento, vars(c))
-    : `Ciao ${c?.nome||""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
+  // (textBia, textRinnovo, text5Sedute, textRegolamento sono inizializzati sopra via useMessageTexts())
   // Copia il messaggio negli appunti e apre WhatsApp con la sola chat.
   // Mettere il testo dentro l'URL corrompe le emoji 4-byte UTF-8 su WhatsApp Desktop,
   // mentre il clipboard le preserva. L'utente fa Ctrl+V (o long-press su mobile).
@@ -2154,6 +2165,7 @@ function FormCliente({titolo,f,setF,onSalva,onAnnulla}) {
 function Clienti({ navTarget }) {
   const [clienti,setClienti]=useState([]);
   const [sel,setSel]=useState(null);
+  const { textBia, textRinnovo, text5Sedute, textRegolamento } = useMessageTexts();
   useEffect(() => {
     if (navTarget && navTarget.tab === "clienti" && navTarget.id) setSel(navTarget.id);
   }, [navTarget]);
