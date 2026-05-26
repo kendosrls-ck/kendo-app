@@ -1712,6 +1712,7 @@ function Clienti() {
             {waPhone&&<button onClick={()=>apriWa(waPhone,waText)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",cursor:"pointer"})}}>💬</button>}
           </div>
         </div>
+        <ClienteDocumenti cliente={c} onSaved={(patch)=>setClienti(p=>p.map(x=>x.id===c.id?{...x,...patch}:x))} />
         <ClienteBia clienteId={c.id} cliente={c} />
       </div>
     );
@@ -2040,6 +2041,144 @@ function MessageTemplates() {
           </div>
         ))
       }
+    </div>
+  );
+}
+
+/* ─── DOCUMENTI CLIENTE (cert. medico + iscrizione, con AI Vision) ─── */
+function ClienteDocumenti({ cliente, onSaved }) {
+  const [showForm, setShowForm] = useState(false);
+  const [tipo, setTipo] = useState("certificato_medico");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [estratto, setEstratto] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const fmtIT = (s) => s ? new Date(s).toLocaleDateString("it-IT") : "—";
+  const giorniA = (d) => { if (!d) return Infinity; return Math.floor((new Date(d) - new Date()) / 86400000); };
+
+  const certG = giorniA(cliente?.scadenza_certificato_medico);
+  const iscG  = giorniA(cliente?.scadenza_iscrizione);
+  const colCert = certG === Infinity ? K.muted : certG < 0 ? K.danger : certG <= 30 ? K.gold : K.success;
+  const colIsc  = iscG === Infinity ? K.muted : iscG < 0 ? K.danger : iscG <= 30 ? K.gold : K.success;
+
+  const onFileSelected = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) { alert("File troppo grande (max 8MB)"); e.target.value = ""; return; }
+    setAiLoading(true);
+    setEstratto(null);
+    try {
+      const reader = new FileReader();
+      const b64 = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve((reader.result || "").split(",")[1]);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const r = await fetch("/api/documento-vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileBase64: b64, mediaType: file.type, tipo }),
+      });
+      const j = await r.json();
+      if (!r.ok || !j.ok) { alert("Errore IA: " + (j.error || r.status)); setAiLoading(false); e.target.value = ""; return; }
+      setEstratto({ tipo: j.tipo_rilevato || tipo, ...j.dati });
+    } catch (err) {
+      alert("Errore: " + err.message);
+    }
+    setAiLoading(false);
+    e.target.value = "";
+  };
+
+  const salva = async () => {
+    if (!estratto) return;
+    const tipoFinale = estratto.tipo === "iscrizione" ? "iscrizione" : "certificato_medico";
+    const patch = {};
+    if (tipoFinale === "certificato_medico") {
+      patch.scadenza_certificato_medico = estratto.data_scadenza || null;
+    } else {
+      patch.scadenza_iscrizione = estratto.data_scadenza || null;
+    }
+    if (estratto.note) {
+      patch.note = ((cliente.note || "") + (cliente.note ? "\n\n" : "") + `[${tipoFinale === "certificato_medico" ? "Cert. medico" : "Iscrizione"}] ` + estratto.note).slice(0, 2000);
+    }
+    const { error } = await supabase.from("clienti").update(patch).eq("id", cliente.id);
+    if (error) { alert("Errore salvataggio: " + error.message); return; }
+    setSavedAt(new Date());
+    setEstratto(null);
+    setShowForm(false);
+    if (onSaved) onSaved(patch);
+    setTimeout(() => setSavedAt(null), 4000);
+  };
+
+  if (showForm) return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontWeight:500,fontSize:13}}>📄 AGGIORNA DOCUMENTO</div>
+        <button onClick={() => { setShowForm(false); setEstratto(null); }} style={B("ghost",{padding:"4px 10px",fontSize:11})}>Annulla</button>
+      </div>
+
+      <div style={{marginBottom:10}}>
+        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Tipo documento</label>
+        <select value={tipo} onChange={e => setTipo(e.target.value)} disabled={!!estratto}>
+          <option value="certificato_medico">Certificato medico</option>
+          <option value="iscrizione">Tessera di iscrizione</option>
+        </select>
+      </div>
+
+      {!estratto && (
+        <div style={{padding:"12px",background:K.goldBg,border:`1px solid ${K.goldBorder}`,borderRadius:8,marginBottom:10}}>
+          <div style={{fontSize:11,color:K.gold,fontWeight:600,marginBottom:6,letterSpacing:1}}>🤖 IA — ESTRAZIONE AUTOMATICA</div>
+          <div style={{fontSize:11,color:K.mutedLight,marginBottom:10,lineHeight:1.5}}>
+            Carica una foto del documento (anche storta o sgranata): l'IA estrae nome, date e validità. Tempo: ~3 secondi.
+          </div>
+          <label style={{...B("gold"),display:"block",textAlign:"center",cursor:aiLoading?"wait":"pointer",padding:"10px",fontSize:12,opacity:aiLoading?0.6:1}}>
+            {aiLoading ? "⏳ Analisi in corso..." : "📷 Carica foto o PDF"}
+            <input type="file" accept="image/*,application/pdf" onChange={onFileSelected} disabled={aiLoading} style={{display:"none"}}/>
+          </label>
+        </div>
+      )}
+
+      {estratto && (
+        <div style={{padding:"12px",background:"#0e0e0e",border:`1px solid ${K.border}`,borderRadius:8,marginBottom:10}}>
+          <div style={{fontSize:11,color:K.success,fontWeight:600,marginBottom:8,letterSpacing:1}}>✓ DATI ESTRATTI — verifica e salva</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr",gap:6,fontSize:12}}>
+            {estratto.nome && <div><span style={{color:K.muted}}>Nome: </span><span style={{color:K.white}}>{estratto.nome} {estratto.cognome||""}</span></div>}
+            <div><span style={{color:K.muted}}>Tipo rilevato: </span><span style={{color:K.gold}}>{estratto.tipo === "iscrizione" ? "Tessera iscrizione" : estratto.tipo === "certificato_medico" ? "Certificato medico" : "—"}</span></div>
+            {estratto.data_emissione && <div><span style={{color:K.muted}}>Emissione: </span><span style={{color:K.white}}>{fmtIT(estratto.data_emissione)}</span></div>}
+            <div><span style={{color:K.muted}}>Scadenza: </span><span style={{color:estratto.data_scadenza?K.gold:K.danger,fontWeight:600}}>{estratto.data_scadenza ? fmtIT(estratto.data_scadenza) : "non trovata"}</span></div>
+            {estratto.tipo_certificato && <div><span style={{color:K.muted}}>Categoria: </span><span style={{color:K.white}}>{estratto.tipo_certificato}</span></div>}
+            {estratto.numero_tessera && <div><span style={{color:K.muted}}>N° tessera: </span><span style={{color:K.white}}>{estratto.numero_tessera}</span></div>}
+            {estratto.note && <div style={{marginTop:4,padding:"6px 8px",background:"#0a0a0a",borderRadius:4,fontStyle:"italic",color:K.mutedLight,fontSize:11}}>{estratto.note}</div>}
+          </div>
+          {!estratto.data_scadenza && <div style={{fontSize:11,color:K.danger,marginTop:8}}>⚠️ Senza data scadenza non posso aggiornare il cliente. Riprova con una foto migliore.</div>}
+          <div style={{display:"flex",gap:8,marginTop:12}}>
+            <button onClick={() => setEstratto(null)} style={{...B("ghost",{flex:1,padding:"10px",fontSize:12})}}>Scarta</button>
+            <button onClick={salva} disabled={!estratto.data_scadenza} style={{...B("gold",{flex:1,padding:"10px",fontSize:12,opacity:estratto.data_scadenza?1:0.5})}}>💾 Salva nel CRM</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>DOCUMENTI</div>
+        <button onClick={() => setShowForm(true)} style={B("gold",{padding:"5px 10px",fontSize:11})}>📷 Aggiorna</button>
+      </div>
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+        <div style={{background:"#0e0e0e",borderRadius:8,padding:"10px",border:`1px solid ${K.border}`}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:4,letterSpacing:1}}>CERT. MEDICO</div>
+          <div style={{fontSize:13,fontWeight:600,color:colCert}}>{fmtIT(cliente?.scadenza_certificato_medico)}</div>
+          {cliente?.scadenza_certificato_medico && <div style={{fontSize:10,color:colCert,marginTop:2}}>{certG < 0 ? `Scaduto da ${Math.abs(certG)}gg` : certG <= 30 ? `Scade tra ${certG}gg` : `Valido ancora ${certG}gg`}</div>}
+        </div>
+        <div style={{background:"#0e0e0e",borderRadius:8,padding:"10px",border:`1px solid ${K.border}`}}>
+          <div style={{fontSize:10,color:K.muted,marginBottom:4,letterSpacing:1}}>ISCRIZIONE</div>
+          <div style={{fontSize:13,fontWeight:600,color:colIsc}}>{fmtIT(cliente?.scadenza_iscrizione)}</div>
+          {cliente?.scadenza_iscrizione && <div style={{fontSize:10,color:colIsc,marginTop:2}}>{iscG < 0 ? `Scaduta da ${Math.abs(iscG)}gg` : iscG <= 30 ? `Scade tra ${iscG}gg` : `Valida ancora ${iscG}gg`}</div>}
+        </div>
+      </div>
+      {savedAt && <div style={{fontSize:11,color:K.success,marginTop:8,textAlign:"center"}}>✓ Aggiornato — ricarica la scheda per vedere le nuove date</div>}
     </div>
   );
 }
