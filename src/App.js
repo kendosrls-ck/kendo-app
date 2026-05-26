@@ -2051,6 +2051,7 @@ function Clienti({ navTarget }) {
             {waPhone&&<button onClick={()=>apriWa(waPhone,waText)} style={{...B("success",{padding:"10px 14px",fontSize:13,display:"flex",alignItems:"center",cursor:"pointer"})}}>💬</button>}
           </div>
         </div>
+        <ClienteStats cliente={c} />
         <ClienteDocumenti cliente={c} onSaved={(patch)=>setClienti(p=>p.map(x=>x.id===c.id?{...x,...patch}:x))} />
         <ClienteNote cliente={c} />
         <ClienteBia clienteId={c.id} cliente={c} />
@@ -2682,6 +2683,89 @@ function ClienteNote({ cliente }) {
             </div>
           ))}
           {storia.length > 5 && <div style={{fontSize:11,color:K.muted,textAlign:"center"}}>+ {storia.length - 5} note più vecchie</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ─── STATISTICHE / ROI CLIENTE ─── */
+function ClienteStats({ cliente }) {
+  const [bia, setBia] = useState([]);
+  const [pren, setPren] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!cliente?.id) { setLoading(false); return; }
+    setLoading(true);
+    Promise.all([
+      supabase.from("bia").select("created_at").eq("cliente_id", cliente.id),
+      cliente.user_id
+        ? supabase.from("prenotazioni").select("data,stato").eq("user_id", cliente.user_id)
+        : Promise.resolve({ data: [] }),
+    ]).then(([{ data: b }, { data: p }]) => {
+      setBia(b || []); setPren(p || []); setLoading(false);
+    });
+  }, [cliente?.id, cliente?.user_id]);
+
+  if (loading) return <div style={C()}><div style={{fontSize:11,color:K.muted,letterSpacing:1}}>STATISTICHE</div><div style={{fontSize:12,color:K.muted,marginTop:6}}>Caricamento…</div></div>;
+
+  const tot = cliente.sedute_total || 0;
+  const usate = cliente.sedute_usate || 0;
+  const pctCompletato = tot > 0 ? Math.round((usate / tot) * 100) : 0;
+  const valore = parseFloat(cliente.valore_cliente) || 0;
+  const debito = parseFloat(cliente.posizione_debitoria) || 0;
+  const valoreSeduta = usate > 0 && valore > 0 ? (valore / usate) : 0;
+  const inizioPacc = cliente.data_inizio_pacchetto ? new Date(cliente.data_inizio_pacchetto) : null;
+  const oggi = new Date();
+  const meseDuration = inizioPacc ? Math.max(1, Math.round((oggi - inizioPacc) / (30 * 86400000))) : 0;
+  const freqMese = inizioPacc && usate > 0 ? (usate / meseDuration).toFixed(1) : "—";
+  const ultimaPresenza = pren.filter(p => p.stato !== "cancellata").map(p => p.data).sort().pop() || cliente.ultimo_appt_data;
+  const ggDallUltima = ultimaPresenza ? Math.floor((oggi - new Date(ultimaPresenza)) / 86400000) : null;
+
+  // Calcolo "salute" del cliente (0-100) per badge colorato
+  let salute = 50;
+  if (cliente.status_crm === "CLIENTE ATTIVO") salute += 10;
+  if (cliente.status_crm === "CANCELLATO") salute -= 50;
+  if (debito > 0) salute -= 15;
+  if (ggDallUltima != null && ggDallUltima > 14) salute -= 10;
+  if (ggDallUltima != null && ggDallUltima > 30) salute -= 15;
+  if (pctCompletato >= 70 && pctCompletato <= 100) salute += 15;
+  if (cliente.cancellazioni >= 3) salute -= 10;
+  if (bia.length >= 2) salute += 5;
+  salute = Math.max(0, Math.min(100, salute));
+  const saluteCol = salute >= 70 ? K.success : salute >= 40 ? K.gold : K.danger;
+  const saluteLabel = salute >= 70 ? "Engagement alto" : salute >= 40 ? "Attenzione" : "A rischio";
+
+  const card = (label, value, subValue, color) => (
+    <div style={{ background:"#0e0e0e", borderRadius:8, padding:"10px 12px", border:`1px solid ${K.border}` }}>
+      <div style={{ fontSize:10, color:K.muted, marginBottom:4, letterSpacing:1 }}>{label}</div>
+      <div style={{ fontSize:15, fontWeight:600, color:color || K.gold }}>{value}</div>
+      {subValue && <div style={{ fontSize:10, color:K.muted, marginTop:2 }}>{subValue}</div>}
+    </div>
+  );
+
+  return (
+    <div style={C()}>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 }}>
+        <div style={{ fontSize:11, color:K.muted, letterSpacing:1 }}>📊 STATISTICHE</div>
+        <div style={{ display:"flex", alignItems:"center", gap:6 }}>
+          <div style={{ width:8, height:8, borderRadius:"50%", background:saluteCol }}/>
+          <span style={{ fontSize:11, color:saluteCol, fontWeight:600 }}>{saluteLabel}</span>
+          <span style={{ fontSize:11, color:K.muted }}>· {salute}/100</span>
+        </div>
+      </div>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:6 }}>
+        {card("VALORE", `€${valore.toFixed(0)}`, valoreSeduta > 0 ? `€${valoreSeduta.toFixed(1)}/seduta` : null)}
+        {card("COMPLETATO", `${pctCompletato}%`, tot > 0 ? `${usate}/${tot} sedute` : "nessun pacchetto")}
+        {card("FREQUENZA", freqMese === "—" ? "—" : `${freqMese}/mese`, meseDuration > 0 ? `${meseDuration} mesi attivo` : null)}
+        {card("ULTIMA SEDUTA", ggDallUltima != null ? `${ggDallUltima}gg fa` : "—", ultimaPresenza ? new Date(ultimaPresenza).toLocaleDateString("it-IT") : null, ggDallUltima > 30 ? K.danger : ggDallUltima > 14 ? K.gold : K.gold)}
+        {card("BIA STORICHE", bia.length, bia.length >= 2 ? "trend disponibile" : "serve 2ª")}
+        {card("CANCELLAZIONI", cliente.cancellazioni || 0, (cliente.cancellazioni || 0) >= 3 ? "alto" : "ok", (cliente.cancellazioni || 0) >= 3 ? K.danger : K.gold)}
+      </div>
+      {debito > 0 && (
+        <div style={{ marginTop:10, padding:"8px 12px", background:K.dangerBg, border:`1px solid ${K.dangerBorder}`, borderRadius:8, fontSize:12, color:K.danger, fontWeight:600 }}>
+          ⚠️ Posizione debitoria: €{debito.toFixed(2)}
         </div>
       )}
     </div>
