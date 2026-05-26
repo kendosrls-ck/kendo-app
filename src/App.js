@@ -3086,55 +3086,158 @@ function ClienteBia({clienteId, cliente}) {
 
 /* ─── AGENDA ADMIN ─── */
 function Agenda() {
-  const [pren,setPren]=useState([]);
-  const [clienti,setClienti]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const days=getNext14();
-  const [day,setDay]=useState(days[0]);
+  const [pren, setPren] = useState([]);
+  const [clienti, setClienti] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const today = new Date();
+  const [viewMonth, setViewMonth] = useState(new Date(today.getFullYear(), today.getMonth(), 1));
+  const [day, setDay] = useState(today.toISOString().split("T")[0]);
+  const [mode, setMode] = useState("calendar"); // "calendar" | "settimana"
 
-  useEffect(()=>{
+  useEffect(() => {
     Promise.all([
-      supabase.from("prenotazioni").select("*").eq("stato","confermata"),
+      supabase.from("prenotazioni").select("*").eq("stato", "confermata"),
       supabase.from("clienti").select("id,nome,cognome,user_id"),
-    ]).then(([{data:p},{data:c}])=>{setPren(p||[]);setClienti(c||[]);setLoading(false);});
-  },[]);
+    ]).then(([{ data: p }, { data: c }]) => { setPren(p || []); setClienti(c || []); setLoading(false); });
+  }, []);
 
-  const dayP=pren.filter(p=>p.data===day).sort((a,b)=>a.ora.localeCompare(b.ora));
-  const getNome=(uid)=>{const c=clienti.find(x=>x.id===uid);return c?`${c.nome} ${c.cognome}`:"Cliente";};
+  const dayP = pren.filter(p => p.data === day).sort((a, b) => (a.ora || "").localeCompare(b.ora || ""));
+  const getNome = (uid) => { const c = clienti.find(x => x.id === uid); return c ? `${c.nome} ${c.cognome}` : "Cliente"; };
 
-  const cancella=async(id)=>{
-    await supabase.from("prenotazioni").update({stato:"cancellata"}).eq("id",id);
-    setPren(p=>p.filter(x=>x.id!==id));
+  const cancella = async (id) => {
+    if (!window.confirm("Cancellare questa prenotazione?")) return;
+    await supabase.from("prenotazioni").update({ stato: "cancellata" }).eq("id", id);
+    setPren(p => p.filter(x => x.id !== id));
   };
 
-  if(loading)return <Spinner/>;
+  // Costruisco la griglia del mese (settimane lunedì-domenica)
+  const buildMonthGrid = (firstOfMonth) => {
+    const grid = [];
+    const start = new Date(firstOfMonth);
+    // Trova il lunedì della prima settimana
+    let offset = (start.getDay() + 6) % 7; // 0=lunedì
+    start.setDate(start.getDate() - offset);
+    for (let w = 0; w < 6; w++) {
+      const week = [];
+      for (let d = 0; d < 7; d++) {
+        const dt = new Date(start);
+        dt.setDate(start.getDate() + w * 7 + d);
+        week.push(dt);
+      }
+      grid.push(week);
+    }
+    return grid;
+  };
+
+  const grid = buildMonthGrid(viewMonth);
+  const monthLabel = viewMonth.toLocaleDateString("it-IT", { month: "long", year: "numeric" });
+  const cambiaMese = (delta) => setViewMonth(new Date(viewMonth.getFullYear(), viewMonth.getMonth() + delta, 1));
+
+  const fmtData = (d) => d.toISOString().split("T")[0];
+  const countDay = (d) => pren.filter(p => p.data === fmtData(d)).length;
+  const isToday = (d) => fmtData(d) === today.toISOString().split("T")[0];
+  const isSelected = (d) => fmtData(d) === day;
+  const isCurrentMonth = (d) => d.getMonth() === viewMonth.getMonth();
+
+  if (loading) return <Spinner/>;
 
   return (
     <div>
-      <div style={{fontWeight:600,fontSize:16,marginBottom:4}}>Agenda</div>
-      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>Tutte le sessioni</div>
-      <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:14}}>
-        {days.map(d=>{const dd=new Date(d);const isSel=d===day;const cnt=pren.filter(p=>p.data===d).length;return(
-          <div key={d} onClick={()=>setDay(d)} style={{flexShrink:0,background:isSel?K.goldBg:"#111",border:`1px solid ${isSel?K.gold:K.border}`,borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"center",minWidth:48}}>
-            <div style={{fontSize:9,color:isSel?K.gold:K.muted}}>{dd.toLocaleDateString("it-IT",{weekday:"short"}).slice(0,3).toUpperCase()}</div>
-            <div style={{fontSize:16,fontWeight:600,color:isSel?K.gold:K.white}}>{dd.getDate()}</div>
-            {cnt>0&&<div style={{width:5,height:5,borderRadius:"50%",background:K.gold,margin:"2px auto 0"}}/>}
-          </div>
-        );})}
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div>
+          <div style={{ fontWeight:600, fontSize:16 }}>Agenda</div>
+          <div style={{ fontSize:12, color:K.muted, marginTop:2 }}>{pren.length} sessioni totali confermate</div>
+        </div>
+        <div style={{ display:"flex", gap:4, padding:3, background:"#0e0e0e", borderRadius:8, border:`1px solid ${K.border}` }}>
+          {[["calendar","📅 Mese"],["settimana","📆 Settimana"]].map(([k,lab])=>(
+            <button key={k} onClick={()=>setMode(k)} style={{
+              background: mode===k ? K.goldBg : "transparent",
+              border: `1px solid ${mode===k ? K.gold : "transparent"}`,
+              color: mode===k ? K.gold : K.mutedLight,
+              borderRadius: 6, padding:"5px 10px", fontSize:11, cursor:"pointer", fontFamily:"inherit", fontWeight: mode===k?600:400
+            }}>{lab}</button>
+          ))}
+        </div>
       </div>
-      <div style={{fontSize:11,color:K.muted,marginBottom:10,letterSpacing:0.5}}>{fmtDate(day).toUpperCase()} — {dayP.length} SESSIONI</div>
-      {dayP.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessuna prenotazione</div>:
-        dayP.map(p=>(
-          <div key={p.id} style={C()}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-              <div>
-                <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:4}}>
-                  <span style={{fontWeight:600,fontSize:15,color:K.gold}}>{p.ora}</span>
-                  <span style={Tag(p.tipo==="EMS"?"#6BBEFC":"#B88EFF",p.tipo==="EMS"?"#08101e":"#100e1e")}>{p.tipo}</span>
+
+      {mode === "calendar" && (
+        <div style={C({padding:"12px"})}>
+          <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
+            <button onClick={()=>cambiaMese(-1)} style={B("ghost",{padding:"5px 12px",fontSize:13})}>◀</button>
+            <div style={{ fontSize:14, fontWeight:600, color:K.gold, textTransform:"capitalize" }}>{monthLabel}</div>
+            <button onClick={()=>cambiaMese(1)} style={B("ghost",{padding:"5px 12px",fontSize:13})}>▶</button>
+          </div>
+          <div style={{ display:"grid", gridTemplateColumns:"repeat(7, 1fr)", gap:3 }}>
+            {["L","M","M","G","V","S","D"].map((g,i)=>(
+              <div key={i} style={{ textAlign:"center", fontSize:10, color:K.muted, padding:"4px 0", letterSpacing:1 }}>{g}</div>
+            ))}
+            {grid.flat().map((d,i)=>{
+              const cnt = countDay(d);
+              const inMonth = isCurrentMonth(d);
+              const sel = isSelected(d);
+              const tod = isToday(d);
+              return (
+                <div key={i} onClick={()=>setDay(fmtData(d))} style={{
+                  aspectRatio:"1/1",
+                  background: sel ? K.goldBg : (tod ? "#1a1408" : "#0e0e0e"),
+                  border: `1px solid ${sel ? K.gold : (tod ? K.goldBorder : K.border)}`,
+                  borderRadius: 6,
+                  display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center",
+                  cursor:"pointer", opacity: inMonth ? 1 : 0.35,
+                  position:"relative",
+                  minHeight: 38,
+                }}>
+                  <div style={{ fontSize:13, fontWeight: sel ? 700 : (tod ? 600 : 500), color: sel ? K.gold : (tod ? K.gold : (inMonth ? K.white : K.muted)) }}>{d.getDate()}</div>
+                  {cnt > 0 && (
+                    <div style={{
+                      position:"absolute", bottom:3,
+                      background: K.gold, color:"#080808",
+                      fontSize: 9, fontWeight:700,
+                      borderRadius: 8, padding:"1px 5px", minWidth:14, textAlign:"center"
+                    }}>{cnt}</div>
+                  )}
                 </div>
-                <div style={{fontSize:13,color:K.mutedLight}}>{getNome(p.user_id)}</div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {mode === "settimana" && (
+        <div style={{ display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:14 }}>
+          {Array.from({length: 14}).map((_, i)=>{
+            const dt = new Date(); dt.setDate(today.getDate() + i);
+            if (dt.getDay() === 0) return null;
+            const k = fmtData(dt);
+            const isSel = k === day;
+            const cnt = pren.filter(p => p.data === k).length;
+            return (
+              <div key={k} onClick={()=>setDay(k)} style={{flexShrink:0,background:isSel?K.goldBg:"#111",border:`1px solid ${isSel?K.gold:K.border}`,borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"center",minWidth:48}}>
+                <div style={{fontSize:9,color:isSel?K.gold:K.muted}}>{dt.toLocaleDateString("it-IT",{weekday:"short"}).slice(0,3).toUpperCase()}</div>
+                <div style={{fontSize:16,fontWeight:600,color:isSel?K.gold:K.white}}>{dt.getDate()}</div>
+                {cnt>0 && <div style={{width:5,height:5,borderRadius:"50%",background:K.gold,margin:"2px auto 0"}}/>}
               </div>
-              <button onClick={()=>cancella(p.id)} style={B("danger",{padding:"6px 10px",fontSize:12})}>✕</button>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Dettaglio giorno selezionato */}
+      <div style={{ fontSize:11, color:K.muted, margin:"14px 0 10px", letterSpacing:0.5 }}>
+        {fmtDate(day).toUpperCase()} — {dayP.length} {dayP.length === 1 ? "SESSIONE" : "SESSIONI"}
+      </div>
+      {dayP.length === 0 ? <div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessuna prenotazione</div> :
+        dayP.map(p => (
+          <div key={p.id} style={C()}>
+            <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+              <div>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                  <span style={{ fontWeight:600, fontSize:15, color:K.gold }}>{p.ora}</span>
+                  <span style={Tag(p.tipo === "EMS" ? "#6BBEFC" : "#B88EFF", p.tipo === "EMS" ? "#08101e" : "#100e1e")}>{p.tipo}</span>
+                </div>
+                <div style={{ fontSize:13, color:K.mutedLight }}>{getNome(p.user_id)}</div>
+              </div>
+              <button onClick={() => cancella(p.id)} style={B("danger",{padding:"6px 10px",fontSize:12})}>✕</button>
             </div>
           </div>
         ))
