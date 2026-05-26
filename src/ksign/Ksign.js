@@ -2,7 +2,7 @@
 // Mostra: statistiche richieste firma, lista filtrabile, drawer creazione nuova richiesta
 
 import { useState, useEffect, useCallback } from "react";
-import { supabase as sb } from "../App";
+import { supabase as sb } from "../supabaseClient";
 
 // Palette (allineata al brand Kendo)
 const K = {
