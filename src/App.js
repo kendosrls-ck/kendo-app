@@ -1116,6 +1116,39 @@ function DashboardCharts() {
   );
 }
 
+/* ─── TEMPLATES MESSAGGI (cache globale) ─── */
+// Cache in memoria + listener cross-component per ricaricare quando un template viene modificato
+const _templatesCache = { data: null, loading: false, listeners: new Set() };
+
+function reloadTemplates() {
+  _templatesCache.loading = true;
+  return supabase.from("message_templates").select("codice,corpo").then(({ data }) => {
+    const map = {};
+    (data || []).forEach(t => { map[t.codice] = t.corpo; });
+    _templatesCache.data = map;
+    _templatesCache.loading = false;
+    _templatesCache.listeners.forEach(fn => { try { fn(map); } catch(_) {} });
+    return map;
+  });
+}
+
+function useTemplates() {
+  const [tpl, setTpl] = useState(_templatesCache.data || {});
+  useEffect(() => {
+    const listener = (m) => setTpl(m);
+    _templatesCache.listeners.add(listener);
+    if (!_templatesCache.data && !_templatesCache.loading) reloadTemplates();
+    return () => _templatesCache.listeners.delete(listener);
+  }, []);
+  return tpl;
+}
+
+// Sostituisce {var} con il valore corrispondente nelle vars passate
+function renderTemplate(corpo, vars) {
+  if (!corpo) return "";
+  return corpo.replace(/\{(\w+)\}/g, (m, k) => vars[k] != null ? String(vars[k]) : m);
+}
+
 /* ─── SEARCH GLOBALE (admin) ─── */
 function GlobalSearch({ onNavigate }) {
   const [q, setQ] = useState("");
@@ -1374,12 +1407,22 @@ function Dashboard({setTab}) {
   const rinnovo3=attivi.filter(c=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return r>0&&r<=3;});
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
-  // Testi dei messaggi WhatsApp (con emoji integre).
-  // TODO futuro: caricarli dal DB (tabella message_templates) invece che hardcoded.
-  const textBia=(c)=>`Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
-  const textRinnovo=(c)=>{const r=(c?.sedute_total||0)-(c?.sedute_usate||0);return `Ciao ${c?.nome||""}! 🏆 Mancano solo ${r} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;};
-  const text5Sedute=(c)=>`Ciao ${c?.nome||""}! 👋\n\nTi aggiorno: ti restano 5 sedute del tuo pacchetto. Continuiamo a lavorare insieme per arrivare al tuo obiettivo! 💪\n\nQuando ci vediamo per la prossima? Possiamo organizzare anche un piccolo controllo della tua composizione corporea per misurare i progressi 📊`;
-  const textRegolamento=(c)=>`Ciao ${c?.nome||""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
+  // Testi dei messaggi WhatsApp: usano i template del DB se disponibili (modificabili da Impostazioni),
+  // altrimenti fallback al testo hardcoded (sicurezza in caso di DB non raggiungibile o template eliminato).
+  const tpl = useTemplates();
+  const vars = (c, extra) => ({ nome: c?.nome || "", cognome: c?.cognome || "", sedute_residue: (c?.sedute_total||0)-(c?.sedute_usate||0), ...extra });
+  const textBia=(c)=> tpl.bia_invito
+    ? renderTemplate(tpl.bia_invito, vars(c))
+    : `Ciao ${c?.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
+  const textRinnovo=(c)=> tpl.rinnovo_proposta
+    ? renderTemplate(tpl.rinnovo_proposta, vars(c))
+    : `Ciao ${c?.nome||""}! 🏆 Mancano solo ${(c?.sedute_total||0)-(c?.sedute_usate||0)} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪 Fammi sapere quando ti va di passare in centro.`;
+  const text5Sedute=(c)=> tpl.cinque_sedute
+    ? renderTemplate(tpl.cinque_sedute, vars(c))
+    : `Ciao ${c?.nome||""}! 👋\n\nTi aggiorno: ti restano 5 sedute del tuo pacchetto. Continuiamo a lavorare insieme per arrivare al tuo obiettivo! 💪\n\nQuando ci vediamo per la prossima? Possiamo organizzare anche un piccolo controllo della tua composizione corporea per misurare i progressi 📊`;
+  const textRegolamento=(c)=> tpl.regolamento
+    ? renderTemplate(tpl.regolamento, vars(c))
+    : `Ciao ${c?.nome||""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
   // Copia il messaggio negli appunti e apre WhatsApp con la sola chat.
   // Mettere il testo dentro l'URL corrompe le emoji 4-byte UTF-8 su WhatsApp Desktop,
   // mentre il clipboard le preserva. L'utente fa Ctrl+V (o long-press su mobile).
@@ -2710,6 +2753,7 @@ function MessageTemplates() {
       return;
     }
     setList(p => p.map(t => t.id===sel ? {...t, corpo, updated_at: new Date().toISOString()} : t));
+    reloadTemplates(); // invalida cache + propaga ai componenti che usano useTemplates()
     setSavedAt(new Date());
     setTimeout(()=>setSavedAt(null), 3000);
   };
