@@ -2283,6 +2283,8 @@ function Clienti({ navTarget }) {
               ["Ultima BIA",fmtDate(c.ultima_bia_data)],
               ["Valore cliente",`€${(c.valore_cliente||0).toFixed(2)}`],
               ["Posizione debitoria",`€${(c.posizione_debitoria||0).toFixed(2)}`],
+              ["Regolamento inviato",c.regolamento_inviato?`✓ ${c.regolamento_inviato_at?new Date(c.regolamento_inviato_at).toLocaleDateString("it-IT"):""}`:"✗ no"],
+              ["Contratto firmato",c.contratto_firmato?`✓ ${c.contratto_firmato_at?new Date(c.contratto_firmato_at).toLocaleDateString("it-IT"):""}`:"✗ no"],
               ["Note",c.note||"—"]
             ].map(([l,v])=>(
               <div key={l} style={{fontSize:13}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
@@ -4028,74 +4030,181 @@ function Agenda() {
 }
 
 function FollowUp() {
-  const [clienti,setClienti]=useState([]);
-  const [followups,setFollowups]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const [showAdd,setShowAdd]=useState(false);
-  const [f,setF]=useState({cliente_id:"",data_contatto:"",motivo:"",esito:"",prossima_azione:""});
-  const u=(k,v)=>setF(p=>({...p,[k]:v}));
+  const [clienti, setClienti] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [cat, setCat] = useState("regolamento");
+  const tpl = useTemplates();
 
-  useEffect(()=>{
-    Promise.all([
-      supabase.from("clienti").select("id,nome,cognome,telefono,user_id"),
-      supabase.from("followup").select("*").order("created_at",{ascending:false}),
-    ]).then(([{data:c},{data:fw}])=>{setClienti(c||[]);setFollowups(fw||[]);setLoading(false);});
-  },[]);
+  useEffect(() => {
+    supabase.from("clienti").select("*").then(({ data }) => {
+      setClienti(data || []);
+      setLoading(false);
+    });
+  }, []);
 
-  const aggiungi=async()=>{
-    const {data}=await supabase.from("followup").insert(f).select().single();
-    if(data){setFollowups(p=>[data,...p]);setF({cliente_id:"",data_contatto:"",motivo:"",esito:"",prossima_azione:""});setShowAdd(false);}
-  };
-  const elimina=async(id)=>{
-    await supabase.from("followup").delete().eq("id",id);
-    setFollowups(p=>p.filter(x=>x.id!==id));
+  const cleanPhone = (t) => {
+    let s = (t || "").replace(/[^0-9+]/g, "").replace(/^\+/, "");
+    if (s.startsWith("0039")) s = s.slice(4);
+    if (s.startsWith("39") && s.length >= 11) s = s.slice(2);
+    if (s.startsWith("0")) s = s.slice(1);
+    return s;
   };
 
-  if(loading)return <Spinner/>;
+  const renderTpl = (codice, fallback, c) => {
+    const corpo = tpl[codice];
+    const vars = { nome: c.nome || "", cognome: c.cognome || "", sedute_residue: (c.sedute_total || 0) - (c.sedute_usate || 0) };
+    return corpo ? renderTemplate(corpo, vars) : fallback;
+  };
 
-  if(showAdd) return (
-    <div>
-      <button onClick={()=>setShowAdd(false)} style={B("ghost",{marginBottom:20,fontSize:12})}>← Indietro</button>
-      <div style={{fontWeight:600,fontSize:16,marginBottom:16}}>Nuovo follow-up</div>
-      <div style={{marginBottom:12}}>
-        <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>CLIENTE</label>
-        <select value={f.cliente_id} onChange={e=>u("cliente_id",e.target.value)}>
-          <option value="">Seleziona...</option>
-          {clienti.map(c=><option key={c.id} value={c.id}>{c.nome} {c.cognome}</option>)}
-        </select>
-      </div>
-      {[["Data contatto","data_contatto","es. 17/05/2026"],["Motivo","motivo","es. Rinnovo"],["Esito","esito","es. Interessato"],["Prossima azione","prossima_azione","es. Richiamare 20/05"]].map(([l,k,ph])=>(
-        <div key={k} style={{marginBottom:12}}>
-          <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:5,letterSpacing:1}}>{l.toUpperCase()}</label>
-          <input value={f[k]} onChange={e=>u(k,e.target.value)} placeholder={ph}/>
+  const inviaWA = async (c, codice, fallback) => {
+    const tel = cleanPhone(c.telefono);
+    if (!tel) { alert("Numero non valido"); return; }
+    const text = renderTpl(codice, fallback, c);
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(text);
+    } catch (_) {}
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const url = isMobile
+      ? `https://wa.me/39${tel}?text=${encodeURIComponent(text)}`
+      : `https://web.whatsapp.com/send?phone=39${tel}&text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
+  const segnaRegolamentoInviato = async (id) => {
+    const at = new Date().toISOString();
+    await supabase.from("clienti").update({ regolamento_inviato: true, regolamento_inviato_at: at }).eq("id", id);
+    setClienti(p => p.map(x => x.id === id ? { ...x, regolamento_inviato: true, regolamento_inviato_at: at } : x));
+  };
+
+  const segnaContrattoFirmato = async (id) => {
+    const at = new Date().toISOString();
+    await supabase.from("clienti").update({ contratto_firmato: true, contratto_firmato_at: at }).eq("id", id);
+    setClienti(p => p.map(x => x.id === id ? { ...x, contratto_firmato: true, contratto_firmato_at: at } : x));
+  };
+
+  if (loading) return <Spinner/>;
+
+  const attivi = clienti.filter(c => !c.status_crm || c.status_crm === "CLIENTE ATTIVO" || c.status_crm === "CLIENTE STAND BY");
+  const giorniDa = (d) => { if (!d) return Infinity; return Math.floor((new Date() - new Date(d)) / 86400000); };
+
+  // 4 CATEGORIE
+  const noRegolamento = attivi.filter(c => !c.regolamento_inviato);
+  const noContratto = attivi.filter(c => !c.contratto_firmato);
+  const seduteScadenza = attivi.filter(c => {
+    const res = (c.sedute_total || 0) - (c.sedute_usate || 0);
+    return c.sedute_total > 0 && res > 0 && res <= 5;
+  });
+  const biaScaduta = attivi.filter(c => giorniDa(c.ultima_bia_data) > 30);
+
+  const categorie = {
+    regolamento: { lab: "📋 No regolamento", list: noRegolamento, color: K.gold },
+    contratto:   { lab: "✍️ No contratto",   list: noContratto, color: K.danger },
+    sedute:      { lab: "💪 ≤5 sedute",       list: seduteScadenza, color: K.gold },
+    bia:         { lab: "📊 BIA da fare",     list: biaScaduta, color: K.info },
+  };
+  const cur = categorie[cat];
+
+  const Card = ({ c, azione }) => {
+    const tel = cleanPhone(c.telefono);
+    return (
+      <div style={C()}>
+        <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:8}}>
+          <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0,position:"relative"}}>
+            {(c.nome||"?")[0]}{(c.cognome||"?")[0]}
+            <span style={{position:"absolute",bottom:-1,right:-1,width:10,height:10,borderRadius:"50%",background:statusDotColor(c.status_crm),border:`2px solid ${K.black}`}}/>
+          </div>
+          <div style={{flex:1,minWidth:0}}>
+            <div style={{fontWeight:500,fontSize:14}}>{c.nome||""} {c.cognome||""}</div>
+            <div style={{fontSize:11,color:K.muted,marginTop:2}}>{c.pacchetto||"—"}{c.telefono?` · ${c.telefono}`:""}</div>
+          </div>
         </div>
-      ))}
-      <button onClick={aggiungi} style={{...B("gold"),width:"100%",padding:13,fontSize:14}}>Aggiungi</button>
-    </div>
-  );
+        {azione}
+      </div>
+    );
+  };
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-        <div style={{fontWeight:600,fontSize:16}}>Follow-up ({followups.length})</div>
-        <button onClick={()=>setShowAdd(true)} style={B("gold",{padding:"8px 14px",fontSize:12})}>+ Nuovo</button>
-      </div>
-      {followups.length===0&&<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun follow-up</div>}
-      {followups.map(fw=>{const cl=clienti.find(c=>c.id===fw.cliente_id);return(
-        <div key={fw.id} style={C()}>
-          <div style={{display:"flex",justifyContent:"space-between",marginBottom:8}}>
-            <div>
-              <div style={{fontWeight:500}}>{cl?`${cl.nome} ${cl.cognome}`:"—"}</div>
-              <div style={{fontSize:11,color:K.muted,marginTop:2}}>{fw.data_contatto}</div>
-            </div>
-            <button onClick={()=>elimina(fw.id)} style={{background:"none",border:"none",color:K.muted,cursor:"pointer",fontSize:14}}>✕</button>
-          </div>
-          {[["Motivo",fw.motivo],["Esito",fw.esito],["Prossima azione",fw.prossima_azione]].map(([l,v])=>(
-            <div key={l} style={{fontSize:12,marginBottom:3}}><span style={{color:K.muted}}>{l}: </span><span style={{color:K.white}}>{v}</span></div>
-          ))}
-          {cl?.telefono&&<a href={`https://api.whatsapp.com/send?phone=39${cl.telefono}`} target="_blank" rel="noreferrer" style={{...B("success",{display:"inline-block",marginTop:10,padding:"7px 12px",fontSize:12,textDecoration:"none"})}}>💬 WhatsApp</a>}
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div>
+          <div style={{fontWeight:600,fontSize:16}}>Follow-up segreteria</div>
+          <div style={{fontSize:12,color:K.muted,marginTop:2}}>Clienti che richiedono azione</div>
         </div>
-      );})}
+      </div>
+
+      {/* Filtri categoria con conteggio */}
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {Object.entries(categorie).map(([k, info]) => (
+          <button key={k} onClick={() => setCat(k)} style={{
+            flexShrink:0,
+            background: cat===k ? K.goldBg : "transparent",
+            border: `1px solid ${cat===k ? K.gold : K.border}`,
+            color: cat===k ? K.gold : K.mutedLight,
+            borderRadius: 8, padding:"7px 12px", fontSize:12, cursor:"pointer", fontFamily:"inherit",
+            whiteSpace:"nowrap"
+          }}>
+            {info.lab} <span style={{opacity:0.7}}>({info.list.length})</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Lista clienti della categoria attiva */}
+      {cur.list.length === 0 ? (
+        <div style={C({textAlign:"center",padding:"3rem 1rem",color:K.muted})}>
+          ✓ Nessun cliente in questa categoria — tutto a posto!
+        </div>
+      ) : cur.list.map(c => {
+        if (cat === "regolamento") {
+          const tel = cleanPhone(c.telefono);
+          const fb = `Ciao ${c.nome||""}😊\n\nper garantire a tutti un servizio puntuale e di qualità, ti ricordiamo alcune indicazioni presenti nel regolamento del centro esposto negli spogliatoi:\n\n🔹 le eventuali disdette devono essere comunicate almeno 24 ore prima dell'appuntamento\n🔹 l'orario indicato coincide con l'inizio dell'allenamento, per questo è consigliato arrivare 5/10 minuti prima, così da sfruttare correttamente lo slot riservato.\n\nIn caso di disdetta tardiva o mancata presentazione, la seduta verrà considerata svolta e scalata, come da regolamento.\n\nGrazie per la collaborazione 💪\nLa Direzione – Fit And Go Padova`;
+          return (
+            <Card key={c.id} c={c} azione={
+              <div style={{display:"flex",gap:6}}>
+                {tel && <button onClick={async () => { await inviaWA(c, "regolamento", fb); segnaRegolamentoInviato(c.id); }} style={{...B("gold",{flex:1,padding:"8px",fontSize:12})}}>📋 Manda regolamento + segna inviato</button>}
+                <button onClick={() => segnaRegolamentoInviato(c.id)} style={{...B("ghost",{padding:"8px 10px",fontSize:11})}}>✓ Solo segna</button>
+              </div>
+            }/>
+          );
+        }
+        if (cat === "contratto") {
+          return (
+            <Card key={c.id} c={c} azione={
+              <button onClick={() => segnaContrattoFirmato(c.id)} style={{...B("danger",{width:"100%",padding:"8px",fontSize:12})}}>✍️ Segna contratto firmato</button>
+            }/>
+          );
+        }
+        if (cat === "sedute") {
+          const res = (c.sedute_total || 0) - (c.sedute_usate || 0);
+          const tel = cleanPhone(c.telefono);
+          const fbRinn = `Ciao ${c.nome||""}! 🏆 Mancano solo ${res} sedute alla fine del tuo pacchetto. Vuoi rinnovare in anticipo? Hai uno sconto riservato e mantieni la continuità del tuo percorso! 🔥💪`;
+          const fb5 = `Ciao ${c.nome||""}! 👋\n\nTi aggiorno: ti restano ${res} sedute del tuo pacchetto. Continuiamo a lavorare insieme per il tuo obiettivo! 💪`;
+          return (
+            <Card key={c.id} c={c} azione={
+              <>
+                <div style={{fontSize:12,color:res<=3?K.danger:K.gold,fontWeight:600,marginBottom:6}}>{res} sedute residue su {c.sedute_total}</div>
+                {tel && <div style={{display:"flex",gap:6}}>
+                  <button onClick={() => inviaWA(c, "cinque_sedute", fb5)} style={{...B("ghost",{flex:1,padding:"8px",fontSize:11})}}>💪 Reminder -5</button>
+                  <button onClick={() => inviaWA(c, "rinnovo_proposta", fbRinn)} style={{...B("danger",{flex:1,padding:"8px",fontSize:11})}}>🏆 Proposta rinnovo</button>
+                </div>}
+              </>
+            }/>
+          );
+        }
+        if (cat === "bia") {
+          const gg = giorniDa(c.ultima_bia_data);
+          const tel = cleanPhone(c.telefono);
+          const fb = `Ciao ${c.nome||""}! 😊 Sono Christian di Fit And Go Padova ⚡ — è passato più di un mese dalla tua ultima BIA. Possiamo fissare una nuova rilevazione per monitorare i tuoi progressi? 📊💪`;
+          return (
+            <Card key={c.id} c={c} azione={
+              <>
+                <div style={{fontSize:12,color:K.muted,marginBottom:6}}>Ultima BIA: {c.ultima_bia_data ? `${gg} giorni fa` : "mai fatta"}</div>
+                {tel && <button onClick={() => inviaWA(c, "bia_invito", fb)} style={{...B("success",{width:"100%",padding:"8px",fontSize:12})}}>📊 Manda invito BIA</button>}
+              </>
+            }/>
+          );
+        }
+        return null;
+      })}
     </div>
   );
 }
