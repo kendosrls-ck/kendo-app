@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { createClient } from "@supabase/supabase-js";
 import LeadAdmin from "./LeadAdmin";
+import Ksign from "./ksign/Ksign";
+import KsignFirma from "./ksign/KsignFirma";
 import {
   isBiometricSupported,
   hasEnrolledPasskey,
@@ -354,6 +356,7 @@ export default function App() {
                 {tab==="clienti" && <Clienti navTarget={navTarget}/>}
                 {tab==="agenda"  && <Agenda/>}
                 {tab==="followup"&& <FollowUp/>}
+                {tab==="firme"   && <Ksign navTarget={navTarget}/>}
                 {tab==="chat"    && <ChatAI piano="gold" isAdmin/>}
                 {tab==="settings"&& <Settings/>}
               </>
