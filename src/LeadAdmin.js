@@ -80,13 +80,19 @@ const STATO_COLORS = {
   scartato:   {bg:"#0e0e0e",    fg:K.muted,   bd:K.borderMid},
 };
 
-export default function LeadAdmin() {
+export default function LeadAdmin({ navTarget }) {
   const [leads, setLeads] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("nonletti");
   const [search, setSearch] = useState("");
   const [sel, setSel] = useState(null);
   const [savingId, setSavingId] = useState(null);
+  useEffect(() => {
+    if (navTarget && navTarget.tab === "lead" && navTarget.id) {
+      setSel(navTarget.id);
+      setFilter("tutti");
+    }
+  }, [navTarget]);
 
   const load = useCallback(async () => {
     setLoading(true);

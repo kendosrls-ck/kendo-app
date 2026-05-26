@@ -146,6 +146,9 @@ export default function App() {
   const [currentUser,setCurrentUser]=useState(null);
   const [profile,setProfile]=useState(null);
   const [chk,setChk]=useState({diet:false,gym:false});
+  // Navigazione cross-tab dalla search globale: punta a un'entità specifica
+  const [navTarget,setNavTarget]=useState(null);
+  const navigate = (toTab, id) => { setNavTarget({tab: toTab, id, ts: Date.now()}); setTab(toTab); };
 
   useEffect(()=>{
     (async()=>{
@@ -263,12 +266,17 @@ export default function App() {
             </div>
           )}
 
-          <div style={{flex:1,overflowY:"auto",padding:isDesktop?"24px 32px":"14px 14px 80px"}}>
+          {role==="admin" && (
+            <div style={{padding:isDesktop?"14px 32px 0":"10px 14px 0",background:K.surface}}>
+              <GlobalSearch onNavigate={navigate}/>
+            </div>
+          )}
+          <div style={{flex:1,overflowY:"auto",padding:isDesktop?"14px 32px 24px":"14px 14px 80px"}}>
             {role==="admin"?(
               <>
                 {tab==="home"    && <Dashboard setTab={setTab}/>}
-                {tab==="lead"    && <LeadAdmin/>}
-                {tab==="clienti" && <Clienti/>}
+                {tab==="lead"    && <LeadAdmin navTarget={navTarget}/>}
+                {tab==="clienti" && <Clienti navTarget={navTarget}/>}
                 {tab==="agenda"  && <Agenda/>}
                 {tab==="followup"&& <FollowUp/>}
                 {tab==="chat"    && <ChatAI piano="gold" isAdmin/>}
@@ -1108,6 +1116,113 @@ function DashboardCharts() {
   );
 }
 
+/* ─── SEARCH GLOBALE (admin) ─── */
+function GlobalSearch({ onNavigate }) {
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState({ clienti: [], lead: [] });
+  const [loading, setLoading] = useState(false);
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const debRef = useRef(null);
+
+  useEffect(() => {
+    const onClickOut = (e) => {
+      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onClickOut);
+    return () => document.removeEventListener("mousedown", onClickOut);
+  }, []);
+
+  useEffect(() => {
+    if (!q || q.trim().length < 2) { setResults({ clienti: [], lead: [] }); return; }
+    clearTimeout(debRef.current);
+    debRef.current = setTimeout(async () => {
+      setLoading(true);
+      const term = q.trim();
+      const like = `%${term}%`;
+      const [{ data: cli }, { data: led }] = await Promise.all([
+        supabase.from("clienti").select("id,nome,cognome,email,telefono,pacchetto,status_crm")
+          .or(`nome.ilike.${like},cognome.ilike.${like},email.ilike.${like},telefono.ilike.${like}`)
+          .limit(8),
+        supabase.from("leads").select("id,nome,cognome,email,cellulare,stato,fonte,letto")
+          .or(`nome.ilike.${like},cognome.ilike.${like},email.ilike.${like},cellulare.ilike.${like}`)
+          .limit(8),
+      ]);
+      setResults({ clienti: cli || [], lead: led || [] });
+      setLoading(false);
+    }, 250);
+    return () => clearTimeout(debRef.current);
+  }, [q]);
+
+  const tot = results.clienti.length + results.lead.length;
+
+  return (
+    <div ref={wrapRef} style={{ position: "relative", flex: 1, maxWidth: 460 }}>
+      <input
+        value={q}
+        onChange={e => { setQ(e.target.value); setOpen(true); }}
+        onFocus={() => q.length >= 2 && setOpen(true)}
+        placeholder="🔎 Cerca clienti, lead, telefono, email..."
+        style={{
+          width: "100%",
+          background: "#0e0e0e",
+          border: `1px solid ${K.border}`,
+          color: K.white,
+          borderRadius: 8,
+          padding: "9px 14px",
+          fontSize: 13,
+          fontFamily: "inherit",
+          outline: "none",
+        }}
+      />
+      {open && q.trim().length >= 2 && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 6px)", left: 0, right: 0,
+          background: K.surface, border: `1px solid ${K.border}`, borderRadius: 10,
+          maxHeight: 420, overflowY: "auto", zIndex: 100, padding: 6,
+          boxShadow: "0 10px 30px rgba(0,0,0,0.6)"
+        }}>
+          {loading && <div style={{ padding: 12, fontSize: 12, color: K.muted }}>Cerco…</div>}
+          {!loading && tot === 0 && <div style={{ padding: 12, fontSize: 12, color: K.muted }}>Nessun risultato per "{q}"</div>}
+          {results.clienti.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, color: K.muted, padding: "8px 10px 4px", letterSpacing: 1, textTransform: "uppercase" }}>👥 Clienti ({results.clienti.length})</div>
+              {results.clienti.map(c => (
+                <div key={"c" + c.id} onClick={() => { onNavigate("clienti", c.id); setOpen(false); setQ(""); }}
+                  style={{ padding: "8px 10px", cursor: "pointer", borderRadius: 6, fontSize: 12 }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#0e0e0e"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <div style={{ color: K.white, fontWeight: 500 }}>{c.nome} {c.cognome || ""}</div>
+                  <div style={{ color: K.muted, fontSize: 11 }}>{c.pacchetto || "—"} · {c.telefono || c.email || "—"}</div>
+                </div>
+              ))}
+            </>
+          )}
+          {results.lead.length > 0 && (
+            <>
+              <div style={{ fontSize: 10, color: K.muted, padding: "8px 10px 4px", letterSpacing: 1, textTransform: "uppercase" }}>📩 Lead ({results.lead.length})</div>
+              {results.lead.map(l => (
+                <div key={"l" + l.id} onClick={() => { onNavigate("lead", l.id); setOpen(false); setQ(""); }}
+                  style={{ padding: "8px 10px", cursor: "pointer", borderRadius: 6, fontSize: 12 }}
+                  onMouseEnter={e => e.currentTarget.style.background = "#0e0e0e"}
+                  onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+                >
+                  <div style={{ color: K.white, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                    {!l.letto && <span style={{ width: 6, height: 6, borderRadius: "50%", background: K.gold }}/>}
+                    {l.nome} {l.cognome || ""}
+                  </div>
+                  <div style={{ color: K.muted, fontSize: 11 }}>{l.stato} · {l.fonte || "—"} · {l.cellulare || l.email || "—"}</div>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── BANNER NOTIFICHE ─── */
 function BannerNotifiche() {
   const supportato = typeof Notification !== "undefined";
@@ -1719,6 +1834,54 @@ function Dashboard({setTab}) {
   );
 }
 
+/* ─── STATUS PILL (cliente) ─── */
+function StatusPill({ stato, onChange }) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  useEffect(() => {
+    const onClick = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("mousedown", onClick);
+    return () => document.removeEventListener("mousedown", onClick);
+  }, []);
+  const stati = [
+    { k: "CLIENTE ATTIVO", color: K.success, bg: K.successBg, bd: K.successBorder, lab: "Attivo" },
+    { k: "CLIENTE STAND BY", color: K.gold, bg: K.goldBg, bd: K.goldBorder, lab: "Stand-by" },
+    { k: "FINE PERCORSO", color: K.info, bg: K.infoBg, bd: K.infoBorder, lab: "Concluso" },
+    { k: "CANCELLATO", color: K.danger, bg: K.dangerBg, bd: K.dangerBorder, lab: "Cancellato" },
+  ];
+  const cur = stati.find(s => s.k === (stato || "CLIENTE ATTIVO")) || stati[0];
+  return (
+    <span ref={wrapRef} style={{ position: "relative" }}>
+      <span onClick={() => setOpen(o => !o)} style={{
+        background: cur.bg, color: cur.color, border: `1px solid ${cur.bd}`,
+        fontSize: 10, fontWeight: 600, padding: "3px 9px", borderRadius: 20, cursor: "pointer",
+        display: "inline-flex", alignItems: "center", gap: 4
+      }}>
+        {cur.lab} ▾
+      </span>
+      {open && (
+        <div style={{
+          position: "absolute", top: "calc(100% + 4px)", left: 0,
+          background: K.surface, border: `1px solid ${K.border}`, borderRadius: 8,
+          padding: 4, zIndex: 100, minWidth: 130, boxShadow: "0 8px 24px rgba(0,0,0,0.6)"
+        }}>
+          {stati.map(s => (
+            <div key={s.k} onClick={() => { onChange(s.k); setOpen(false); }} style={{
+              padding: "6px 10px", fontSize: 11, cursor: "pointer", borderRadius: 6,
+              color: s.k === cur.k ? s.color : K.mutedLight, fontWeight: s.k === cur.k ? 600 : 400
+            }}
+              onMouseEnter={e => e.currentTarget.style.background = "#0e0e0e"}
+              onMouseLeave={e => e.currentTarget.style.background = "transparent"}
+            >
+              {s.k === cur.k ? "✓ " : ""}{s.lab}
+            </div>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
 /* ─── FORM CLIENTE (standalone per evitare re-render) ─── */
 function FormCliente({titolo,f,setF,onSalva,onAnnulla}) {
   const u=(k,v)=>setF(p=>({...p,[k]:v}));
@@ -1750,9 +1913,12 @@ function FormCliente({titolo,f,setF,onSalva,onAnnulla}) {
 }
 
 /* ─── CLIENTI ADMIN ─── */
-function Clienti() {
+function Clienti({ navTarget }) {
   const [clienti,setClienti]=useState([]);
   const [sel,setSel]=useState(null);
+  useEffect(() => {
+    if (navTarget && navTarget.tab === "clienti" && navTarget.id) setSel(navTarget.id);
+  }, [navTarget]);
   const [showAdd,setShowAdd]=useState(false);
   const [editMode,setEditMode]=useState(false);
   const [loading,setLoading]=useState(true);
@@ -1839,7 +2005,14 @@ function Clienti() {
             </div>
             <div style={{flex:1}}>
               <div style={{fontWeight:600,fontSize:16}}>{c.nome||""} {c.cognome||""}</div>
-              <div style={{fontSize:12,color:K.muted,marginTop:1}}>{c.pacchetto||"—"} · {c.status_crm||"CLIENTE ATTIVO"}</div>
+              <div style={{fontSize:12,color:K.muted,marginTop:3,display:"flex",alignItems:"center",gap:6}}>
+                <span>{c.pacchetto||"—"}</span>
+                <span>·</span>
+                <StatusPill stato={c.status_crm} onChange={async(nuovo)=>{
+                  await supabase.from("clienti").update({status_crm:nuovo}).eq("id",c.id);
+                  setClienti(p=>p.map(x=>x.id===c.id?{...x,status_crm:nuovo}:x));
+                }}/>
+              </div>
             </div>
           </div>
           <div style={{borderTop:`1px solid ${K.border}`,paddingTop:12,display:"flex",flexDirection:"column",gap:8}}>
@@ -1879,6 +2052,7 @@ function Clienti() {
           </div>
         </div>
         <ClienteDocumenti cliente={c} onSaved={(patch)=>setClienti(p=>p.map(x=>x.id===c.id?{...x,...patch}:x))} />
+        <ClienteNote cliente={c} />
         <ClienteBia clienteId={c.id} cliente={c} />
       </div>
     );
@@ -2308,6 +2482,101 @@ function MessageTemplates() {
   );
 }
 
+/* ─── NOTE RAPIDE CLIENTE (followup timeline) ─── */
+function ClienteNote({ cliente }) {
+  const [storia, setStoria] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [motivo, setMotivo] = useState("");
+  const [esito, setEsito] = useState("");
+  const [prossimaAzione, setProssimaAzione] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!cliente?.id) { setLoading(false); return; }
+    setLoading(true);
+    // followup è legato a profiles.id, ma la nostra logica usa l'id del CRM clienti.
+    // Tentativo: filtriamo per cliente_id che è il campo che usiamo (vedi le RLS).
+    supabase.from("followup").select("*").eq("crm_cliente_id", cliente.id).order("created_at", { ascending: false })
+      .then(({ data }) => { setStoria(data || []); setLoading(false); });
+  }, [cliente?.id]);
+
+  const salva = async () => {
+    if (!motivo.trim()) { alert("Inserisci almeno il motivo della nota"); return; }
+    setSaving(true);
+    const payload = {
+      crm_cliente_id: cliente.id,
+      data_contatto: new Date().toISOString().split("T")[0],
+      motivo: motivo.trim(),
+      esito: esito.trim() || null,
+      prossima_azione: prossimaAzione.trim() || null,
+    };
+    const { data, error } = await supabase.from("followup").insert(payload).select().single();
+    if (error) { alert("Errore: " + error.message); setSaving(false); return; }
+    setStoria(p => [data, ...p]);
+    setMotivo(""); setEsito(""); setProssimaAzione("");
+    setShowAdd(false);
+    setSaving(false);
+  };
+
+  const elimina = async (id) => {
+    if (!window.confirm("Eliminare questa nota?")) return;
+    await supabase.from("followup").delete().eq("id", id);
+    setStoria(p => p.filter(x => x.id !== id));
+  };
+
+  const fmtData = (s) => {
+    if (!s) return "—";
+    try {
+      const d = typeof s === "string" && s.length === 10 ? new Date(s + "T00:00:00") : new Date(s);
+      return d.toLocaleDateString("it-IT", { day: "2-digit", month: "short", year: "2-digit" });
+    } catch (_) { return s; }
+  };
+
+  if (loading) return <div style={C({padding:"10px 14px"})}><div style={{fontSize:11,color:K.muted,letterSpacing:1}}>NOTE / FOLLOW-UP</div><div style={{fontSize:11,color:K.muted,marginTop:4}}>Caricamento…</div></div>;
+
+  if (showAdd) return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+        <div style={{fontWeight:500,fontSize:13}}>📝 NUOVA NOTA</div>
+        <button onClick={() => { setShowAdd(false); setMotivo(""); setEsito(""); setProssimaAzione(""); }} style={B("ghost",{padding:"4px 10px",fontSize:11})}>Annulla</button>
+      </div>
+      <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Motivo *</label>
+      <input value={motivo} onChange={e => setMotivo(e.target.value)} placeholder="Es. Chiamata di controllo, cliente perplesso, problema con seduta…"/>
+      <div style={{height:8}}/>
+      <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Esito (opz.)</label>
+      <input value={esito} onChange={e => setEsito(e.target.value)} placeholder="Es. Si è rasserenato, ha cambiato idea, ha chiesto rinvio…"/>
+      <div style={{height:8}}/>
+      <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Prossima azione (opz.)</label>
+      <input value={prossimaAzione} onChange={e => setProssimaAzione(e.target.value)} placeholder="Es. Richiamare lunedì, mandare offerta, fissare BIA…"/>
+      <button onClick={salva} disabled={saving} style={{...B("gold"),width:"100%",padding:"12px",marginTop:14}}>{saving ? "Salvataggio…" : "💾 Salva nota"}</button>
+    </div>
+  );
+
+  return (
+    <div style={C()}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+        <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>NOTE / FOLLOW-UP {storia.length > 0 && `(${storia.length})`}</div>
+        <button onClick={() => setShowAdd(true)} style={B("gold",{padding:"5px 10px",fontSize:11})}>+ Nota</button>
+      </div>
+      {storia.length === 0 ? <div style={{fontSize:12,color:K.muted}}>Nessuna nota registrata</div> : (
+        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+          {storia.slice(0, 5).map(n => (
+            <div key={n.id} style={{background:"#0e0e0e",borderRadius:8,padding:"10px 12px",border:`1px solid ${K.border}`,position:"relative"}}>
+              <div style={{fontSize:10,color:K.muted,marginBottom:4,letterSpacing:0.5}}>{fmtData(n.data_contatto || n.created_at)}</div>
+              <div style={{fontSize:13,color:K.white,fontWeight:500}}>{n.motivo}</div>
+              {n.esito && <div style={{fontSize:12,color:K.mutedLight,marginTop:3}}><span style={{color:K.muted}}>Esito: </span>{n.esito}</div>}
+              {n.prossima_azione && <div style={{fontSize:12,color:K.gold,marginTop:3}}><span style={{color:K.muted}}>→ </span>{n.prossima_azione}</div>}
+              <button onClick={() => elimina(n.id)} style={{position:"absolute",top:8,right:8,background:"none",border:"none",color:K.muted,cursor:"pointer",fontSize:13}}>×</button>
+            </div>
+          ))}
+          {storia.length > 5 && <div style={{fontSize:11,color:K.muted,textAlign:"center"}}>+ {storia.length - 5} note più vecchie</div>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /* ─── DOCUMENTI CLIENTE (cert. medico + iscrizione, con AI Vision) ─── */
 function ClienteDocumenti({ cliente, onSaved }) {
   const [showForm, setShowForm] = useState(false);
@@ -2677,6 +2946,7 @@ function ClienteBia({clienteId, cliente}) {
           <button onClick={()=>setShowForm(true)} style={B("gold",{padding:"5px 10px",fontSize:11})}>+ Nuova</button>
         </div>
       </div>
+      {storia.length >= 2 && <BIATrendChart storia={storia}/>}
       {!bia ? <div style={{fontSize:12,color:K.muted}}>Nessuna rilevazione BIA</div> : (
         <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:6}}>
           {[
