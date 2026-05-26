@@ -201,14 +201,6 @@ const useIsDesktop = () => {
 };
 
 export default function App() {
-  // Routing pubblico: /prova-gratuita o ?prova=1 mostra la landing senza login
-  if (typeof window !== "undefined") {
-    const p = window.location.pathname;
-    const q = window.location.search;
-    if (p.startsWith("/prova-gratuita") || p === "/prova" || q.includes("prova=1")) {
-      return <><style>{gs}</style><LandingProvaGratuita/></>;
-    }
-  }
   const isDesktop = useIsDesktop();
   const [screen,setScreen]=useState("loading");
   const [role,setRole]=useState("user");
@@ -240,6 +232,18 @@ export default function App() {
       else setScreen("login");
     })();
   },[]);
+
+  // Routing pubblico DOPO tutti gli hook (regola React: hooks always in same order)
+  if (typeof window !== "undefined") {
+    const p = window.location.pathname;
+    const q = window.location.search;
+    if (p.startsWith("/firma/")) {
+      return <KsignFirma/>;
+    }
+    if (p.startsWith("/prova-gratuita") || p === "/prova" || q.includes("prova=1")) {
+      return <><style>{gs}</style><LandingProvaGratuita/></>;
+    }
+  }
 
   const userNav=[{id:"home",icon:"○",label:"Home"},{id:"prenota",icon:"◷",label:"Prenota"},{id:"bia",icon:"◈",label:"BIA"},{id:"dieta",icon:"◉",label:"Dieta"},{id:"chat",icon:"◎",label:"AI"}];
   const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"agenda",icon:"◷",label:"Agenda"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"firme",icon:"✎",label:"Firme"},{id:"chat",icon:"◎",label:"AI"},{id:"settings",icon:"⚙",label:"Impostazioni"}];
@@ -1560,6 +1564,9 @@ function Dashboard({setTab}) {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
+  // HOOK: deve essere chiamato PRIMA di qualsiasi return condizionale (regola React)
+  const tpl = useTemplates();
+
   if(loading)return <Spinner/>;
 
   const cList=(clienti||[]).filter(c=>c?.status_crm==="CLIENTE ATTIVO"||c?.status_crm==="CLIENTE STAND BY"||!c?.status_crm);
@@ -1593,8 +1600,7 @@ function Dashboard({setTab}) {
 
   const cleanPhone=(t)=>(t||"").replace(/[^0-9+]/g,"").replace(/^\+?39/,"");
   // Testi dei messaggi WhatsApp: usano i template del DB se disponibili (modificabili da Impostazioni),
-  // altrimenti fallback al testo hardcoded (sicurezza in caso di DB non raggiungibile o template eliminato).
-  const tpl = useTemplates();
+  // altrimenti fallback al testo hardcoded.
   const vars = (c, extra) => ({ nome: c?.nome || "", cognome: c?.cognome || "", sedute_residue: (c?.sedute_total||0)-(c?.sedute_usate||0), ...extra });
   const textBia=(c)=> tpl.bia_invito
     ? renderTemplate(tpl.bia_invito, vars(c))
