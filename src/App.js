@@ -2058,29 +2058,140 @@ function Clienti({ navTarget }) {
     );
   }
 
-  const lista=(clienti||[]).filter(c=>{
-    if(!searchTerm)return true;
-    const q=searchTerm.toLowerCase();
-    return [c?.nome,c?.cognome,c?.email,c?.telefono].filter(Boolean).some(v=>String(v).toLowerCase().includes(q));
+  return <ClientiList clienti={clienti} onSelect={setSel} onAdd={()=>setShowAdd(true)} searchTerm={searchTerm} setSearchTerm={setSearchTerm}/>;
+}
+
+/* ─── LISTA CLIENTI: tabella desktop + card mobile + filtri rapidi ─── */
+function ClientiList({ clienti, onSelect, onAdd, searchTerm, setSearchTerm }) {
+  const isDesktop = useIsDesktop();
+  const [sortKey, setSortKey] = useState("cognome");
+  const [sortAsc, setSortAsc] = useState(true);
+  const [statoF, setStatoF] = useState("attivi");
+
+  const fmtIT = (s) => s ? new Date(s).toLocaleDateString("it-IT",{day:"2-digit",month:"2-digit",year:"2-digit"}) : "—";
+  const giorniA = (d) => { if (!d) return Infinity; return Math.floor((new Date(d) - new Date()) / 86400000); };
+
+  // Filtro: stato + ricerca
+  let lista = (clienti || []).filter(c => {
+    if (statoF === "tutti") return true;
+    if (statoF === "attivi") return !c.status_crm || c.status_crm === "CLIENTE ATTIVO";
+    if (statoF === "standby") return c.status_crm === "CLIENTE STAND BY";
+    if (statoF === "conclusi") return c.status_crm === "FINE PERCORSO";
+    if (statoF === "cancellati") return c.status_crm === "CANCELLATO";
+    if (statoF === "debito") return (parseFloat(c.posizione_debitoria)||0) > 0;
+    if (statoF === "pochesedute") { const r=(c.sedute_total||0)-(c.sedute_usate||0); return r > 0 && r <= 3; }
+    return true;
+  }).filter(c => {
+    if (!searchTerm) return true;
+    const q = searchTerm.toLowerCase();
+    return [c?.nome,c?.cognome,c?.email,c?.telefono,c?.pacchetto].filter(Boolean).some(v => String(v).toLowerCase().includes(q));
   });
+
+  // Sort
+  lista = [...lista].sort((a, b) => {
+    let va = a[sortKey], vb = b[sortKey];
+    if (sortKey === "sedute_res") { va = (a.sedute_total||0)-(a.sedute_usate||0); vb = (b.sedute_total||0)-(b.sedute_usate||0); }
+    if (sortKey === "scadenza_certificato_medico" || sortKey === "scadenza_iscrizione" || sortKey === "data_nascita" || sortKey === "ultima_bia_data") {
+      va = va ? new Date(va).getTime() : (sortAsc ? Infinity : -Infinity);
+      vb = vb ? new Date(vb).getTime() : (sortAsc ? Infinity : -Infinity);
+    }
+    if (typeof va === "string") va = va.toLowerCase();
+    if (typeof vb === "string") vb = vb.toLowerCase();
+    if (va == null) va = sortAsc ? "zzz" : "";
+    if (vb == null) vb = sortAsc ? "zzz" : "";
+    if (va < vb) return sortAsc ? -1 : 1;
+    if (va > vb) return sortAsc ? 1 : -1;
+    return 0;
+  });
+
+  const toggleSort = (k) => { if (sortKey === k) setSortAsc(!sortAsc); else { setSortKey(k); setSortAsc(true); } };
+  const sortIcon = (k) => sortKey === k ? (sortAsc ? "↑" : "↓") : "";
+
+  const filtri = [
+    ["attivi", "Attivi"], ["standby", "Stand-by"], ["pochesedute", "≤3 sedute"],
+    ["debito", "Con debito"], ["conclusi", "Conclusi"], ["cancellati", "Cancellati"], ["tutti", "Tutti"]
+  ];
 
   return (
     <div>
-      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
         <div style={{fontWeight:600,fontSize:16}}>Clienti ({lista.length}/{clienti.length})</div>
-        <button onClick={()=>setShowAdd(true)} style={B("gold",{padding:"8px 14px",fontSize:12})}>+ Nuovo</button>
+        <button onClick={onAdd} style={B("gold",{padding:"8px 14px",fontSize:12})}>+ Nuovo cliente</button>
       </div>
+
       <input
-        placeholder="Cerca per nome, telefono, email…"
+        placeholder="Cerca per nome, telefono, email, pacchetto…"
         value={searchTerm} onChange={e=>setSearchTerm(e.target.value)}
-        style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:12}}/>
-      {clienti.length===0&&<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun cliente ancora</div>}
-      {lista.length===0&&clienti.length>0&&<div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun risultato per "{searchTerm}"</div>}
-      {lista.map(c=>{
+        style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+
+      <div style={{display:"flex",gap:6,marginBottom:14,overflowX:"auto",paddingBottom:4}}>
+        {filtri.map(([k,lab])=>{
+          const active = statoF===k;
+          return (
+            <button key={k} onClick={()=>setStatoF(k)} style={{
+              flexShrink:0,
+              background: active ? K.goldBg : "transparent",
+              border: `1px solid ${active ? K.gold : K.border}`,
+              color: active ? K.gold : K.mutedLight,
+              borderRadius: 8, padding:"6px 12px", fontSize:11, cursor:"pointer", fontFamily:"inherit"
+            }}>{lab}</button>
+          );
+        })}
+      </div>
+
+      {clienti.length===0 && <div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun cliente ancora</div>}
+      {lista.length===0 && clienti.length>0 && <div style={C({textAlign:"center",padding:"2rem",color:K.muted,fontSize:13})}>Nessun risultato</div>}
+
+      {/* DESKTOP: tabella sortable */}
+      {isDesktop && lista.length > 0 && (
+        <div style={C({padding:0,overflow:"hidden"})}>
+          <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+            <thead>
+              <tr style={{background:"#0e0e0e",borderBottom:`1px solid ${K.border}`}}>
+                {[
+                  ["cognome","Cognome"],["nome","Nome"],["pacchetto","Pacchetto"],
+                  ["sedute_res","Sedute"],["ultima_bia_data","Ultima BIA"],
+                  ["scadenza_certificato_medico","Cert.medico"],["scadenza_iscrizione","Iscrizione"],
+                  ["valore_cliente","Valore €"]
+                ].map(([k,lab])=>(
+                  <th key={k} onClick={()=>toggleSort(k)} style={{textAlign:"left",padding:"10px 12px",cursor:"pointer",color:K.mutedLight,fontWeight:500,fontSize:11,letterSpacing:0.5,whiteSpace:"nowrap",userSelect:"none"}}>
+                    {lab} <span style={{color:K.gold}}>{sortIcon(k)}</span>
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map(c=>{
+                const res = (c.sedute_total||0)-(c.sedute_usate||0);
+                const tot = c.sedute_total||0;
+                const certG = giorniA(c.scadenza_certificato_medico);
+                const iscG = giorniA(c.scadenza_iscrizione);
+                return (
+                  <tr key={c.id} onClick={()=>onSelect(c.id)} style={{borderBottom:`1px solid ${K.border}`,cursor:"pointer"}}
+                    onMouseEnter={e=>e.currentTarget.style.background="#0e0e0e"}
+                    onMouseLeave={e=>e.currentTarget.style.background="transparent"}>
+                    <td style={{padding:"10px 12px",fontWeight:500,color:K.white}}>{c.cognome||"—"}</td>
+                    <td style={{padding:"10px 12px",color:K.mutedLight}}>{c.nome||"—"}</td>
+                    <td style={{padding:"10px 12px",color:K.muted,fontSize:11}}>{c.pacchetto||"—"}</td>
+                    <td style={{padding:"10px 12px"}}>{tot>0 ? <span style={{color:res<=3?K.danger:res<=5?K.gold:K.success,fontWeight:600}}>{res}<span style={{color:K.muted,fontWeight:400}}>/{tot}</span></span> : <span style={{color:K.muted}}>—</span>}</td>
+                    <td style={{padding:"10px 12px",fontSize:11,color:K.mutedLight}}>{fmtIT(c.ultima_bia_data)}</td>
+                    <td style={{padding:"10px 12px",fontSize:11,color:certG===Infinity?K.muted:certG<0?K.danger:certG<=30?K.gold:K.mutedLight}}>{fmtIT(c.scadenza_certificato_medico)}</td>
+                    <td style={{padding:"10px 12px",fontSize:11,color:iscG===Infinity?K.muted:iscG<0?K.danger:iscG<=30?K.gold:K.mutedLight}}>{fmtIT(c.scadenza_iscrizione)}</td>
+                    <td style={{padding:"10px 12px",color:K.gold,fontWeight:600}}>€{(parseFloat(c.valore_cliente)||0).toFixed(0)}{(parseFloat(c.posizione_debitoria)||0)>0 && <span style={{color:K.danger,fontSize:10,marginLeft:6}}>(−€{c.posizione_debitoria})</span>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* MOBILE: card view */}
+      {!isDesktop && lista.map(c=>{
         const tot=c.sedute_total||0; const usate=c.sedute_usate||0; const res=tot-usate;
         const haPacchetto=tot>0;
         return(
-          <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>setSel(c.id)}>
+          <div key={c.id} style={C({cursor:"pointer"})} onClick={()=>onSelect(c.id)}>
             <div style={{display:"flex",alignItems:"center",gap:12}}>
               <div style={{width:36,height:36,borderRadius:"50%",background:K.goldBg,border:`1px solid ${K.goldBorder}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,fontWeight:600,color:K.gold,flexShrink:0}}>{(c.nome||"?")[0]}{(c.cognome||"?")[0]}</div>
               <div style={{flex:1,minWidth:0}}>
