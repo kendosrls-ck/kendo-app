@@ -174,6 +174,13 @@ export default function KsignFirma() {
       const id = `KS-${String(richiesta.numero_progressivo).padStart(6, "0")}`;
       setTransId(id);
       setDone(true);
+
+      // 6. Notifica email admin (non blocca se fallisce)
+      fetch("/api/firma-notifica", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ richiesta_id: richiesta.id }),
+      }).catch(e => console.warn("firma-notifica failed (non-blocking):", e));
     } catch (err) {
       console.error("completeSignature:", err);
       setDone(true);
