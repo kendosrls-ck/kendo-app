@@ -137,9 +137,13 @@ function parseLeadFromMessage(msg) {
   const nome   = extractField(body, ["nome", "name", "first name"]);
   const cognome= extractField(body, ["cognome", "surname", "last name"]);
   const email  = extractEmail(body);
-  const tel    = extractPhone(body);
+  // Telefono: PRIMA cerca l'etichetta (Cellulare/Telefono...), POI fallback ai pattern regex
+  var telRaw = extractField(body, ["cellulare", "telefono", "cell", "tel", "phone", "mobile", "numero"]);
+  var tel = telRaw ? cleanPhoneValue(telRaw) : extractPhone(body);
   const fonte  = extractField(body, ["fonte", "provenienza", "come ci hai conosciuto", "source"]) || guessFonte(subject, from);
-  const messaggio = extractField(body, ["messaggio", "message", "richiesta", "note"]);
+  const negozio = extractField(body, ["negozio", "store", "centro", "sede"]);
+  const obiettivo = extractField(body, ["tecnologia scelta", "tecnologia", "obiettivo", "interesse"]);
+  const messaggio = extractField(body, ["messaggio", "message", "richiesta", "note"]) || obiettivo;
 
   // Senza nome non possiamo creare il lead
   if (!nome && !email && !tel) return null;
@@ -149,8 +153,8 @@ function parseLeadFromMessage(msg) {
     cognome: cognome,
     email: email,
     telefono: tel,
-    fonte: fonte || "Gmail",
-    campagna: extractField(body, ["campagna", "campaign"]),
+    fonte: fonte || guessFonte(subject, from) || "Gmail",
+    campagna: extractField(body, ["campagna", "campaign"]) || negozio,
     messaggio: messaggio,
     email_subject: msg.getSubject(),
     email_received_at: msg.getDate().toISOString(),
@@ -185,17 +189,27 @@ function extractEmail(body) {
   return m ? m[0] : null;
 }
 
+// Pulisce un valore telefono estratto da un'etichetta (es. "393493798171" o "+39 349 379 8171")
+function cleanPhoneValue(raw) {
+  if (!raw) return null;
+  var s = String(raw).replace(/[^0-9+]/g, "");
+  if (s.length < 8) return null; // troppo corto per essere un telefono
+  return s;
+}
+
 function extractPhone(body) {
-  // Cerca pattern italiani: +39 oppure 3xx xxxxxxx
+  // Pattern italiani migliorati: cattura anche 39XXXXXXXXXX (12 cifre senza +)
   var patterns = [
-    /\+39\s?\d{2,3}\s?\d{3}\s?\d{4}/,
-    /\+\d{1,3}\s?\d{6,12}/,
-    /\b3\d{2}\s?\d{3}\s?\d{4}\b/,
-    /\b\d{10}\b/,
+    /\+39[\s.\-]?\d{2,3}[\s.\-]?\d{3}[\s.\-]?\d{3,4}/,  // +39 con separatori
+    /\b0039\d{8,11}\b/,                                       // 0039...
+    /\b39\d{9,10}\b/,                                         // 39XXXXXXXXX (12 cifre tot, prefisso senza +)
+    /\b3\d{2}[\s.\-]?\d{3}[\s.\-]?\d{3,4}\b/,            // 3XX XXX XXXX cellulare italiano
+    /\+\d{1,3}[\s.\-]?\d{6,12}/,                            // internazionale generico
+    /\b\d{9,10}\b/,                                           // 9-10 cifre nude
   ];
   for (var i = 0; i < patterns.length; i++) {
     var m = body.match(patterns[i]);
-    if (m) return m[0].replace(/\s/g, "");
+    if (m) return m[0].replace(/[\s.\-]/g, "");
   }
   return null;
 }

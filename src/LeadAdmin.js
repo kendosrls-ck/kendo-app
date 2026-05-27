@@ -89,6 +89,10 @@ export default function LeadAdmin({ navTarget }) {
   const [savingId, setSavingId] = useState(null);
   const [selected, setSelected] = useState(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
+  const [editContatti, setEditContatti] = useState(false);
+  const [editTel, setEditTel] = useState("");
+  const [editEmail, setEditEmail] = useState("");
+  const [savingContatti, setSavingContatti] = useState(false);
   useEffect(() => {
     if (navTarget && navTarget.tab === "lead" && navTarget.id) {
       setSel(navTarget.id);
@@ -189,6 +193,25 @@ export default function LeadAdmin({ navTarget }) {
     setBulkBusy(false);
   };
 
+  const salvaContatti = async (id) => {
+    setSavingContatti(true);
+    const telPulito = (editTel || "").trim();
+    const telNorm = telPulito ? telPulito.replace(/[^0-9]/g, "") : null;
+    const patch = {
+      cellulare: telPulito || null,
+      telefono_normalizzato: telNorm,
+      email: (editEmail || "").trim() || null,
+    };
+    const { error } = await supabase.from("leads").update(patch).eq("id", id);
+    if (!error) {
+      setLeads(prev => prev.map(l => l.id === id ? { ...l, ...patch } : l));
+      setEditContatti(false);
+    } else {
+      alert("Errore salvataggio: " + error.message);
+    }
+    setSavingContatti(false);
+  };
+
   if (loading) return (
     <div style={{display:"flex",justifyContent:"center",padding:"4rem"}}>
       <div style={{width:32,height:32,border:`3px solid ${K.border}`,borderTop:`3px solid ${K.gold}`,borderRadius:"50%",animation:"spin 0.8s linear infinite"}}/>
@@ -233,10 +256,31 @@ export default function LeadAdmin({ navTarget }) {
         </div>
 
         <div style={C()}>
-          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>CONTATTI</div>
-          {l.cellulare && <div style={{fontSize:14,marginBottom:4}}>📱 <a href={`tel:${l.cellulare}`} style={{color:K.gold,textDecoration:"none"}}>{l.cellulare}</a></div>}
-          {l.email && <div style={{fontSize:14,marginBottom:4}}>✉️ <a href={`mailto:${l.email}`} style={{color:K.gold,textDecoration:"none",wordBreak:"break-all"}}>{l.email}</a></div>}
-          {!l.cellulare && !l.email && <div style={{fontSize:12,color:K.muted,fontStyle:"italic"}}>Nessun contatto disponibile</div>}
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+            <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>CONTATTI</div>
+            {!editContatti && <button onClick={()=>{setEditTel(l.cellulare||"");setEditEmail(l.email||"");setEditContatti(true);}} style={B("outline",{padding:"4px 10px",fontSize:11})}>✏️ Modifica</button>}
+          </div>
+          {!editContatti ? (
+            <>
+              {l.cellulare && <div style={{fontSize:14,marginBottom:4}}>📱 <a href={`tel:${l.cellulare}`} style={{color:K.gold,textDecoration:"none"}}>{l.cellulare}</a></div>}
+              {l.email && <div style={{fontSize:14,marginBottom:4}}>✉️ <a href={`mailto:${l.email}`} style={{color:K.gold,textDecoration:"none",wordBreak:"break-all"}}>{l.email}</a></div>}
+              {!l.cellulare && !l.email && <div style={{fontSize:12,color:K.muted,fontStyle:"italic"}}>Nessun contatto. Clicca "Modifica" per aggiungere il numero.</div>}
+              {!l.cellulare && l.email && <div style={{fontSize:11,color:K.gold,marginTop:6}}>💡 Aggiungi il numero per poterlo contattare via WhatsApp</div>}
+            </>
+          ) : (
+            <div>
+              <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Telefono / cellulare</label>
+              <input value={editTel} onChange={e=>setEditTel(e.target.value)} placeholder="Es. +39 349 379 8171" type="tel"
+                style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+              <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Email</label>
+              <input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="email@esempio.it" type="email"
+                style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+              <div style={{display:"flex",gap:8}}>
+                <button onClick={()=>salvaContatti(l.id)} disabled={savingContatti} style={{...B("success",{flex:1,padding:"10px",fontSize:12})}}>{savingContatti?"Salvataggio...":"💾 Salva"}</button>
+                <button onClick={()=>setEditContatti(false)} style={{...B("ghost",{padding:"10px 14px",fontSize:12})}}>Annulla</button>
+              </div>
+            </div>
+          )}
         </div>
 
         <div style={C()}>
