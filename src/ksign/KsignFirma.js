@@ -82,7 +82,7 @@ export default function KsignFirma() {
     (!isLib ? true : (
       [1,2,3,4,5,6].every(n => signatures[n]) &&
       Object.values(consents).every(v => v === "yes" || v === "no") &&
-      certMedico && libAccept
+      libAccept
     ));
 
   const conDone = !isCon ? true : [7,8,9,10].every(n => signatures[n]);
@@ -290,8 +290,8 @@ function LiberatoriaStep({ certMedico, setCertMedico, libAccept, setLibAccept, c
         <label style={{ display: "flex", gap: 10, padding: 12, background: K.amber50, border: `2px solid ${K.amber500}55`, borderRadius: 10, cursor: "pointer", marginBottom: 16 }}>
           <input type="checkbox" checked={certMedico} onChange={e => setCertMedico(e.target.checked)} style={{ width: 20, height: 20, marginTop: 2 }} />
           <div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: K.amber900 }}>Possesso certificato medico</div>
-            <div style={{ fontSize: 11, color: K.amber700, marginTop: 2 }}>Dichiaro di possedere certificazione medica per attività sportiva non agonistica</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: K.amber900 }}>Possesso certificato medico <span style={{ fontSize: 11, fontWeight: 500, color: K.slate500 }}>(facoltativo)</span></div>
+            <div style={{ fontSize: 11, color: K.amber700, marginTop: 2 }}>Spunta solo se possiedi già la certificazione medica per attività sportiva non agonistica. Se non ce l'hai, puoi proseguire comunque e portarla in un secondo momento.</div>
           </div>
         </label>
 
@@ -312,8 +312,8 @@ function LiberatoriaStep({ certMedico, setCertMedico, libAccept, setLibAccept, c
         </label>
       </Card>
 
-      <SignatureBlock n={1} label="Firma 1: Dichiarazioni salute" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
-      <SignatureBlock n={2} label="Firma 2: Clausole 1341-1342 CC" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={1} label="Firma 1: Dichiarazioni salute" descrizione={"Firmando dichiari di essere in condizioni psicofisiche idonee all'attività, di non avere patologie incompatibili (epilessia, pacemaker, gravidanza, cardiopatie, ernia, problemi renali, malattie neurologiche, diabete), di non aver assunto sostanze/alcolici/farmaci nelle 48h precedenti, di conoscere i rischi dell'attività EMS/Vacufit e di osservare le norme di sicurezza del centro."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={2} label="Firma 2: Clausole 1341-1342 CC" descrizione={"Firmando approvi specificamente, ai sensi degli artt. 1341 e 1342 del Codice Civile, le clausole vessatorie del contratto (limitazioni di responsabilità, foro competente di Padova, condizioni di recesso). È una firma richiesta dalla legge italiana per rendere valide queste clausole."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
 
       <Card>
         <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 4 }}>Consensi GDPR</h3>
@@ -365,10 +365,10 @@ function ContrattoStep({ richiesta, templates, signatures, confirmSig, clearSig,
         </div>
       </Card>
 
-      <SignatureBlock n={7} label="Firma 7: Accettazione contratto" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
-      <SignatureBlock n={8} label="Firma 8: Clausole 1341-1342 CC" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
-      <SignatureBlock n={9} label="Firma 9: Consenso trattamento dati" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
-      <SignatureBlock n={10} label="Firma 10: Consenso marketing" signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={7} label="Firma 7: Accettazione contratto" descrizione={"Firmando accetti le condizioni generali del contratto: tariffe e durata annuale del pacchetto, nominativo e non cedibile; obbligo di pagamento anche in caso di mancato utilizzo; metodi di pagamento ammessi; obbligo di certificato medico; norme di condotta del centro."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={8} label="Firma 8: Clausole 1341-1342 CC" descrizione={"Approvazione specifica delle clausole vessatorie del contratto (artt. 1341-1342 CC): limitazione responsabilità civile del centro, foro competente di Padova, condizioni di recesso e pagamento. Firma richiesta dalla legge per validità."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={9} label="Firma 9: Consenso trattamento dati" descrizione={"Consenso al trattamento dei tuoi dati personali per l'esecuzione del contratto e gli obblighi di legge, secondo il Regolamento UE 2016/679 (GDPR). Necessario per la gestione della tua iscrizione e dei tuoi dati."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
+      <SignatureBlock n={10} label="Firma 10: Consenso marketing" descrizione={"Consenso (facoltativo) a ricevere comunicazioni promozionali, offerte e novità da Fit And Go Padova via email, SMS o WhatsApp. Puoi revocarlo in qualsiasi momento."} signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs} />
 
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
         <button onClick={onBack} style={btnSecondary()}>Indietro</button>
@@ -423,14 +423,28 @@ function SuccessScreen({ fullName, transId, richiesta }) {
 
 // ====== HELPERS ======
 
-function SignatureBlock({ n, label, signatures, confirmSig, clearSig, padRefs }) {
+function SignatureBlock({ n, label, descrizione, signatures, confirmSig, clearSig, padRefs }) {
   const signed = !!signatures[n];
+  const [openDesc, setOpenDesc] = useState(false);
   return (
     <Card style={{ background: signed ? "linear-gradient(135deg, #d1fae5, #a7f3d0)" : "white", border: signed ? `1px solid ${K.emerald500}` : `1px solid ${K.slate200}` }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
         <div style={{ fontSize: 13, fontWeight: 700, color: K.slate900 }}>{label}</div>
         <div style={{ fontSize: 11, fontWeight: 600, color: signed ? K.emerald600 : K.slate500 }}>{signed ? "✓ Firmata" : "⏳ Da firmare"}</div>
       </div>
+      {descrizione && (
+        <div style={{ marginBottom: 10 }}>
+          <button onClick={() => setOpenDesc(o => !o)} style={{ width: "100%", textAlign: "left", background: K.slate50, border: `1px solid ${K.slate200}`, borderRadius: 8, padding: "8px 12px", fontSize: 12, color: K.slate700, cursor: "pointer", fontWeight: 600, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <span>📄 Leggi cosa stai firmando</span>
+            <span>{openDesc ? "▲" : "▼"}</span>
+          </button>
+          {openDesc && (
+            <div style={{ background: K.slate50, border: `1px solid ${K.slate200}`, borderTop: "none", borderRadius: "0 0 8px 8px", padding: "10px 12px", fontSize: 12, color: K.slate700, lineHeight: 1.6, whiteSpace: "pre-line", marginTop: -2 }}>
+              {descrizione}
+            </div>
+          )}
+        </div>
+      )}
       <KsignSignaturePad ref={el => padRefs.current[n] = el} height={120} />
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button onClick={() => clearSig(n)} style={{ flex: 1, padding: 8, fontSize: 12, background: "#f1f5f9", border: "none", borderRadius: 6, cursor: "pointer", color: K.slate700, fontWeight: 600 }}>Cancella</button>
