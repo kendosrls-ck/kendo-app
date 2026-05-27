@@ -203,6 +203,68 @@ const useIsDesktop = () => {
   return isDesktop;
 };
 
+// Hook NOTIFICHE: polling lead/prenotazioni a livello globale (gira su qualsiasi tab finché l'app è aperta)
+function useLeadNotifications(enabled) {
+  useEffect(() => {
+    if (!enabled) return;
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+
+    const playSound = () => {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const o = ctx.createOscillator(); const g = ctx.createGain();
+        o.connect(g); g.connect(ctx.destination);
+        o.frequency.value = 880; o.type = "sine";
+        g.gain.setValueAtTime(0.15, ctx.currentTime);
+        g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.25);
+        o.start(); o.stop(ctx.currentTime + 0.25);
+      } catch (_) {}
+    };
+
+    let lastLeads = new Set();
+    let lastPren = new Set();
+    let isMounted = true;
+    const notify = (title, body, tag) => {
+      if (Notification.permission !== "granted") return;
+      try {
+        const notif = new Notification(title, { body, tag, icon: "/logo192.png", silent: false });
+        notif.onclick = () => { window.focus(); notif.close(); };
+        playSound();
+      } catch (_) {}
+    };
+    const check = async () => {
+      const [{ data: lLeads }, { data: lPren }] = await Promise.all([
+        supabase.from("leads").select("id,nome,cognome,cellulare,fonte,letto").eq("stato", "nuovo").eq("letto", false).order("created_at", { ascending: false }).limit(20),
+        supabase.from("prenotazioni").select("id,user_id,data,ora,tipo").eq("stato", "confermata").gte("data", new Date().toISOString().split("T")[0]).order("created_at", { ascending: false }).limit(20),
+      ]);
+      if (!isMounted) return;
+      if (lLeads) {
+        const ids = new Set(lLeads.map(x => x.id));
+        if (lastLeads.size > 0) {
+          for (const n of lLeads.filter(x => !lastLeads.has(x.id))) {
+            const src = n.fonte ? ` (${n.fonte})` : "";
+            notify("📩 Nuovo lead Kendo" + src, `${n.nome || ""} ${n.cognome || ""} · ${n.cellulare || "senza tel"}`, "lead-" + n.id);
+          }
+        }
+        lastLeads = ids;
+      }
+      if (lPren) {
+        const ids = new Set(lPren.map(x => x.id));
+        if (lastPren.size > 0) {
+          for (const p of lPren.filter(x => !lastPren.has(x.id))) {
+            const dt = new Date(p.data).toLocaleDateString("it-IT");
+            notify("📅 Nuova prenotazione", `${p.tipo || "Allenamento"} · ${dt} ore ${p.ora || ""}`, "pren-" + p.id);
+          }
+        }
+        lastPren = ids;
+      }
+    };
+    check();
+    const iv = setInterval(check, 45000);
+    return () => { isMounted = false; clearInterval(iv); };
+  }, [enabled]);
+}
+
 export default function App() {
   const isDesktop = useIsDesktop();
   const [screen,setScreen]=useState("loading");
@@ -215,6 +277,9 @@ export default function App() {
   // Navigazione cross-tab dalla search globale: punta a un'entità specifica
   const [navTarget,setNavTarget]=useState(null);
   const navigate = (toTab, id) => { setNavTarget({tab: toTab, id, ts: Date.now()}); setTab(toTab); };
+
+  // Notifiche globali nuovi lead/prenotazioni: attive quando admin loggato (qualsiasi tab)
+  useLeadNotifications(screen === "app" && role === "admin");
 
   useEffect(()=>{
     (async()=>{
@@ -1530,68 +1595,6 @@ function Dashboard({setTab}) {
       setClienti(c||[]);setFollowups(f||[]);setPren(p||[]);setLeadsNuovi(lN||[]);setPrenDomani(pD||[]);setLoading(false);
     }).catch(()=>{setLoading(false);});
   },[oggi,domani]);
-
-  // Suono notifica (data URI di un beep dorato breve, ~0.2s)
-  const playSound = ()=>{
-    try {
-      const ctx = new (window.AudioContext||window.webkitAudioContext)();
-      const o=ctx.createOscillator();const g=ctx.createGain();
-      o.connect(g);g.connect(ctx.destination);
-      o.frequency.value=880;o.type="sine";
-      g.gain.setValueAtTime(0.15,ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.001,ctx.currentTime+0.25);
-      o.start();o.stop(ctx.currentTime+0.25);
-    } catch(_) {}
-  };
-
-  // NOTIFICHE PUSH: lead nuovi + prenotazioni nuove + scadenze del giorno
-  useEffect(()=>{
-    if(typeof window==="undefined"||!("Notification" in window))return;
-    let lastLeads = new Set();
-    let lastPren = new Set();
-    let isMounted = true;
-    const notify = (title, body, tag) => {
-      if (Notification.permission !== "granted") return;
-      try {
-        const notif = new Notification(title, { body, tag, icon: "/logo192.png", silent: false });
-        notif.onclick = () => { window.focus(); notif.close(); };
-        playSound();
-      } catch(_) {}
-    };
-    const check = async () => {
-      const [{data: lLeads}, {data: lPren}] = await Promise.all([
-        supabase.from("leads").select("id,nome,cognome,cellulare,fonte,letto").eq("stato","nuovo").eq("letto",false).order("created_at",{ascending:false}).limit(20),
-        supabase.from("prenotazioni").select("id,user_id,data,ora,tipo").eq("stato","confermata").gte("data", new Date().toISOString().split("T")[0]).order("created_at",{ascending:false}).limit(20),
-      ]);
-      if (!isMounted) return;
-      // Lead nuovi
-      if (lLeads) {
-        const ids = new Set(lLeads.map(x=>x.id));
-        if (lastLeads.size > 0) {
-          for (const n of lLeads.filter(x => !lastLeads.has(x.id))) {
-            const src = n.fonte ? ` (${n.fonte})` : "";
-            notify("📩 Nuovo lead Kendo" + src, `${n.nome||""} ${n.cognome||""} · ${n.cellulare||"senza tel"}`, "lead-"+n.id);
-          }
-        }
-        lastLeads = ids;
-      }
-      // Prenotazioni nuove
-      if (lPren) {
-        const ids = new Set(lPren.map(x=>x.id));
-        if (lastPren.size > 0) {
-          for (const p of lPren.filter(x => !lastPren.has(x.id))) {
-            const dt = new Date(p.data).toLocaleDateString("it-IT");
-            notify("📅 Nuova prenotazione", `${p.tipo||"Allenamento"} · ${dt} ore ${p.ora||""}`, "pren-"+p.id);
-          }
-        }
-        lastPren = ids;
-      }
-    };
-    check();
-    const iv = setInterval(check, 60000);
-    return () => { isMounted = false; clearInterval(iv); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[]);
 
   // HOOK: deve essere chiamato PRIMA di qualsiasi return condizionale (regola React)
   const { textBia, textRinnovo, text5Sedute, textRegolamento } = useMessageTexts();
