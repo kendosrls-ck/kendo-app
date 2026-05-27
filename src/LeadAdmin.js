@@ -92,7 +92,21 @@ export default function LeadAdmin({ navTarget }) {
   const [editContatti, setEditContatti] = useState(false);
   const [editTel, setEditTel] = useState("");
   const [editEmail, setEditEmail] = useState("");
+  const [editNome, setEditNome] = useState("");
+  const [editCognome, setEditCognome] = useState("");
+  const [editFonte, setEditFonte] = useState("");
+  const [editNote, setEditNote] = useState("");
   const [savingContatti, setSavingContatti] = useState(false);
+
+  const apriModifica = (l) => {
+    setEditNome(l.nome || "");
+    setEditCognome(l.cognome || "");
+    setEditTel(l.cellulare || "");
+    setEditEmail(l.email || "");
+    setEditFonte(l.fonte || "");
+    setEditNote(l.note || "");
+    setEditContatti(true);
+  };
   useEffect(() => {
     if (navTarget && navTarget.tab === "lead" && navTarget.id) {
       setSel(navTarget.id);
@@ -198,9 +212,13 @@ export default function LeadAdmin({ navTarget }) {
     const telPulito = (editTel || "").trim();
     const telNorm = telPulito ? telPulito.replace(/[^0-9]/g, "") : null;
     const patch = {
+      nome: (editNome || "").trim() || null,
+      cognome: (editCognome || "").trim() || null,
       cellulare: telPulito || null,
       telefono_normalizzato: telNorm,
       email: (editEmail || "").trim() || null,
+      fonte: (editFonte || "").trim() || null,
+      note: (editNote || "").trim() || null,
     };
     const { error } = await supabase.from("leads").update(patch).eq("id", id);
     if (!error) {
@@ -251,30 +269,48 @@ export default function LeadAdmin({ navTarget }) {
               <div style={{fontSize:20,fontWeight:600,color:K.white}}>{l.nome||""} {l.cognome||""}</div>
               <div style={{fontSize:11,color:K.muted,marginTop:4}}>Ricevuto {fmtDateTime(l.created_at)}</div>
             </div>
-            <span style={Tag(sc.fg, sc.bg, sc.bd)}>{l.stato}</span>
+            <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:8}}>
+              <span style={Tag(sc.fg, sc.bg, sc.bd)}>{l.stato}</span>
+              {!editContatti && <button onClick={()=>apriModifica(l)} style={B("outline",{padding:"4px 10px",fontSize:11})}>✏️ Modifica</button>}
+            </div>
           </div>
         </div>
 
         <div style={C()}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
-            <div style={{fontSize:11,color:K.muted,letterSpacing:1}}>CONTATTI</div>
-            {!editContatti && <button onClick={()=>{setEditTel(l.cellulare||"");setEditEmail(l.email||"");setEditContatti(true);}} style={B("outline",{padding:"4px 10px",fontSize:11})}>✏️ Modifica</button>}
-          </div>
+          <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:8}}>CONTATTI</div>
           {!editContatti ? (
             <>
               {l.cellulare && <div style={{fontSize:14,marginBottom:4}}>📱 <a href={`tel:${l.cellulare}`} style={{color:K.gold,textDecoration:"none"}}>{l.cellulare}</a></div>}
               {l.email && <div style={{fontSize:14,marginBottom:4}}>✉️ <a href={`mailto:${l.email}`} style={{color:K.gold,textDecoration:"none",wordBreak:"break-all"}}>{l.email}</a></div>}
-              {!l.cellulare && !l.email && <div style={{fontSize:12,color:K.muted,fontStyle:"italic"}}>Nessun contatto. Clicca "Modifica" per aggiungere il numero.</div>}
+              {!l.cellulare && !l.email && <div style={{fontSize:12,color:K.muted,fontStyle:"italic"}}>Nessun contatto. Clicca "✏️ Modifica" per aggiungere il numero.</div>}
               {!l.cellulare && l.email && <div style={{fontSize:11,color:K.gold,marginTop:6}}>💡 Aggiungi il numero per poterlo contattare via WhatsApp</div>}
             </>
           ) : (
             <div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:10}}>
+                <div>
+                  <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Nome</label>
+                  <input value={editNome} onChange={e=>setEditNome(e.target.value)} placeholder="Nome"
+                    style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit"}}/>
+                </div>
+                <div>
+                  <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Cognome</label>
+                  <input value={editCognome} onChange={e=>setEditCognome(e.target.value)} placeholder="Cognome"
+                    style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit"}}/>
+                </div>
+              </div>
               <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Telefono / cellulare</label>
               <input value={editTel} onChange={e=>setEditTel(e.target.value)} placeholder="Es. +39 349 379 8171" type="tel"
                 style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
               <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Email</label>
               <input value={editEmail} onChange={e=>setEditEmail(e.target.value)} placeholder="email@esempio.it" type="email"
                 style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+              <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Fonte</label>
+              <input value={editFonte} onChange={e=>setEditFonte(e.target.value)} placeholder="Es. Instagram, Sito, Passaparola"
+                style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",marginBottom:10}}/>
+              <label style={{fontSize:11,color:K.muted,display:"block",marginBottom:4}}>Note</label>
+              <textarea value={editNote} onChange={e=>setEditNote(e.target.value)} rows={2} placeholder="Annotazioni libere sul lead"
+                style={{width:"100%",background:"#111",border:`1px solid ${K.border}`,color:K.white,borderRadius:8,padding:"10px 12px",fontSize:13,fontFamily:"inherit",resize:"vertical",marginBottom:10}}/>
               <div style={{display:"flex",gap:8}}>
                 <button onClick={()=>salvaContatti(l.id)} disabled={savingContatti} style={{...B("success",{flex:1,padding:"10px",fontSize:12})}}>{savingContatti?"Salvataggio...":"💾 Salva"}</button>
                 <button onClick={()=>setEditContatti(false)} style={{...B("ghost",{padding:"10px 14px",fontSize:12})}}>Annulla</button>
