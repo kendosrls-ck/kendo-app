@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import LeadAdmin from "./LeadAdmin";
 import Ksign from "./ksign/Ksign";
 import KsignFirma from "./ksign/KsignFirma";
+import ImportMarketing from "./ImportMarketing";
 import {
   isBiometricSupported,
   hasEnrolledPasskey,
@@ -2623,6 +2624,7 @@ function Settings() {
         {[
           ["templates","Messaggi WhatsApp"],
           ["notifiche","Notifiche"],
+          ["importclienti","Import clienti"],
           ["bulk","Import documenti"],
           ["export","Esporta dati"],
           ["account","Account"],
@@ -2641,6 +2643,7 @@ function Settings() {
       </div>
       {tab==="templates" && <MessageTemplates/>}
       {tab==="notifiche" && <NotificheSettings/>}
+      {tab==="importclienti" && <ImportMarketing/>}
       {tab==="bulk" && <BulkDocumenti/>}
       {tab==="export" && <ExportData/>}
       {tab==="account" && (
