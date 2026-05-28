@@ -389,8 +389,7 @@ function AnagraficaStep({ anagrafica, setAnagrafica, onScanCF, scanLoading, scan
     anagrafica.luogo_nascita.trim() &&
     anagrafica.indirizzo.trim() &&
     anagrafica.citta.trim() &&
-    capValido &&
-    anagrafica.numero_documento.trim();
+    capValido;
 
   const lblStyle = { fontSize: 11, color: K.slate500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, display: "block" };
   const inpStyle = { width: "100%", padding: "10px 12px", fontSize: 14, border: `1px solid ${K.slate200}`, borderRadius: 8, outline: "none", boxSizing: "border-box", background: "white" };
@@ -455,7 +454,8 @@ function AnagraficaStep({ anagrafica, setAnagrafica, onScanCF, scanLoading, scan
       </Card>
 
       <Card>
-        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: K.slate900 }}>Documento di identità</div>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 4, color: K.slate900 }}>Documento di identità <span style={{ fontSize: 11, fontWeight: 500, color: K.slate500 }}>(facoltativo)</span></div>
+        <p style={{ fontSize: 11, color: K.slate500, marginBottom: 10 }}>Puoi saltare questo campo. È utile solo per maggior tutela in caso di contestazioni.</p>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
           <div>
             <label style={lblStyle}>Tipo</label>
@@ -467,7 +467,7 @@ function AnagraficaStep({ anagrafica, setAnagrafica, onScanCF, scanLoading, scan
             </select>
           </div>
           <div>
-            <label style={lblStyle}>Numero *</label>
+            <label style={lblStyle}>Numero</label>
             <input type="text" value={anagrafica.numero_documento} onChange={e => upd("numero_documento", e.target.value.toUpperCase())} placeholder="CA12345AB" style={{ ...inpStyle, fontFamily: "monospace" }} />
           </div>
         </div>
