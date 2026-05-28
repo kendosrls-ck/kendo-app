@@ -71,7 +71,17 @@ export default function Planner() {
     d.setDate(d.getDate() + delta);
     setGiorno(d.toISOString().split("T")[0]);
   };
+  const cambiaMese = (delta) => {
+    const d = new Date(giorno + "T00:00:00");
+    d.setMonth(d.getMonth() + delta);
+    setGiorno(d.toISOString().split("T")[0]);
+  };
   const oggi = () => setGiorno(new Date().toISOString().split("T")[0]);
+
+  // Limiti navigazione: ±1 anno da oggi
+  const oggiDate = new Date();
+  const minDate = new Date(oggiDate.getFullYear() - 1, oggiDate.getMonth(), oggiDate.getDate()).toISOString().split("T")[0];
+  const maxDate = new Date(oggiDate.getFullYear() + 1, oggiDate.getMonth(), oggiDate.getDate()).toISOString().split("T")[0];
 
   // Orari aperti del giorno per ogni risorsa
   const orariRisorsa = (rId) => orari.filter(o => o.risorsa_id === rId && o.giorno_settimana === giornoSet);
@@ -117,11 +127,15 @@ export default function Planner() {
           <div style={{ fontWeight: 600, fontSize: 16 }}>Planner</div>
           <div style={{ fontSize: 12, color: K.muted, marginTop: 2 }}>{appuntamenti.length} appuntamenti il {labelGiorno}</div>
         </div>
-        <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <button onClick={() => cambiaGiorno(-1)} style={btn("ghost", { padding: "6px 12px" })}>◀</button>
-          <button onClick={oggi} style={btn(isOggi ? "primary" : "ghost", { padding: "6px 14px", fontSize: 12, textTransform: "capitalize" })}>{isOggi ? "Oggi" : labelGiorno.split(",")[0]}</button>
-          <input type="date" value={giorno} onChange={e => setGiorno(e.target.value)} style={{ background: K.surface, border: `1px solid ${K.border}`, color: K.text, borderRadius: 6, padding: "6px 8px", fontSize: 12 }} />
-          <button onClick={() => cambiaGiorno(1)} style={btn("ghost", { padding: "6px 12px" })}>▶</button>
+        <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={() => cambiaMese(-1)} title="Mese precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>«</button>
+          <button onClick={() => cambiaGiorno(-7)} title="Settimana precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>‹‹</button>
+          <button onClick={() => cambiaGiorno(-1)} title="Giorno precedente" style={btn("ghost", { padding: "6px 12px" })}>◀</button>
+          <button onClick={oggi} style={btn(isOggi ? "primary" : "ghost", { padding: "6px 14px", fontSize: 12 })}>Oggi</button>
+          <input type="date" value={giorno} min={minDate} max={maxDate} onChange={e => setGiorno(e.target.value)} style={{ background: K.surface, border: `1px solid ${K.border}`, color: K.text, borderRadius: 6, padding: "6px 8px", fontSize: 12 }} />
+          <button onClick={() => cambiaGiorno(1)} title="Giorno successivo" style={btn("ghost", { padding: "6px 12px" })}>▶</button>
+          <button onClick={() => cambiaGiorno(7)} title="Settimana successiva" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>››</button>
+          <button onClick={() => cambiaMese(1)} title="Mese successivo" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>»</button>
         </div>
       </div>
 
@@ -354,7 +368,7 @@ function ModalNuovo({ slot, clienti, onClose, onSaved }) {
       {/* DURATA */}
       <div style={lblBlock}>Durata</div>
       <div style={{ display: "flex", gap: 6 }}>
-        {[30, 45, 60, 90].map(m => (
+        {[30, 60, 90, 120].map(m => (
           <button key={m} onClick={() => setDurata(m)} style={btn(durata === m ? "primary" : "ghost", { flex: 1, fontSize: 12, padding: "8px 6px" })}>{m} min</button>
         ))}
       </div>
