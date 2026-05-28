@@ -31,6 +31,19 @@ export default function Planner() {
   const [giorno, setGiorno] = useState(() => new Date().toISOString().split("T")[0]);
   const [modalNew, setModalNew] = useState(null); // { risorsa_id, ora_inizio }
   const [modalDetail, setModalDetail] = useState(null); // appuntamento
+  const [oraAdesso, setOraAdesso] = useState(() => {
+    const n = new Date();
+    return n.getHours() * 60 + n.getMinutes();
+  });
+
+  // Aggiorna ora corrente ogni 60 secondi
+  useEffect(() => {
+    const t = setInterval(() => {
+      const n = new Date();
+      setOraAdesso(n.getHours() * 60 + n.getMinutes());
+    }, 60000);
+    return () => clearInterval(t);
+  }, []);
 
   // Carica risorse + clienti una volta
   useEffect(() => {
@@ -155,7 +168,35 @@ export default function Planner() {
         {loading ? (
           <div style={{ padding: 40, textAlign: "center", color: K.muted, fontSize: 13 }}>Caricamento...</div>
         ) : (
-          <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto" }}>
+          <div style={{ maxHeight: "calc(100vh - 260px)", overflowY: "auto", position: "relative" }}>
+            {/* BARRA TEMPO CORRENTE (solo se stiamo guardando oggi e ora è nel range visibile) */}
+            {isOggi && oraAdesso >= oraMin && oraAdesso < oraMax && (
+              <div style={{
+                position: "absolute",
+                left: 0, right: 0,
+                top: `${((oraAdesso - oraMin) / SLOT_MIN) * 36}px`,
+                height: 2,
+                background: "#ef4444",
+                zIndex: 5,
+                pointerEvents: "none",
+                boxShadow: "0 0 6px rgba(239,68,68,.6)",
+              }}>
+                <div style={{
+                  position: "absolute", left: 0, top: -6,
+                  width: 10, height: 10, borderRadius: "50%",
+                  background: "#ef4444",
+                  boxShadow: "0 0 0 2px rgba(239,68,68,.3)",
+                }} />
+                <div style={{
+                  position: "absolute", left: 14, top: -8,
+                  fontSize: 10, color: "#ef4444", fontWeight: 700,
+                  fontFamily: "monospace", background: K.surface, padding: "1px 5px",
+                  borderRadius: 4, border: "1px solid #ef4444",
+                }}>
+                  {fromMin(oraAdesso)}
+                </div>
+              </div>
+            )}
             {slots.map(minuti => (
               <div key={minuti} style={{ display: "grid", gridTemplateColumns: `60px repeat(${risorse.length}, 1fr)`, borderBottom: `1px solid ${K.border}`, minHeight: 36 }}>
                 <div style={{ padding: "8px 6px", fontSize: 10, color: K.muted, textAlign: "center", fontFamily: "monospace" }}>{fromMin(minuti)}</div>

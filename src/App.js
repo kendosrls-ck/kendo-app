@@ -2651,12 +2651,184 @@ function Settings() {
       {tab==="importclienti" && <ImportMarketing/>}
       {tab==="bulk" && <BulkDocumenti/>}
       {tab==="export" && <ExportData/>}
-      {tab==="account" && (
-        <div style={C({padding:"20px",textAlign:"center"})}>
-          <div style={{fontSize:13,color:K.mutedLight,marginBottom:8}}>Gestione account</div>
-          <div style={{fontSize:11,color:K.muted}}>Sezione in arrivo — qui potrai modificare ragione sociale, P.IVA, dati di fatturazione.</div>
+      {tab==="account" && <AccountSettings/>}
+    </div>
+  );
+}
+
+function AccountSettings() {
+  const [me, setMe] = useState(null);
+  const [azienda, setAzienda] = useState(null);
+  const [editAz, setEditAz] = useState(false);
+  const [savingAz, setSavingAz] = useState(false);
+  const [pwd, setPwd] = useState({ nuova: "", conferma: "" });
+  const [savingPwd, setSavingPwd] = useState(false);
+  const [msgPwd, setMsgPwd] = useState(null);
+  const [tema, setTema] = useState(() => localStorage.getItem("kendo_tema") || "scuro");
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({data}) => setMe(data?.user || null));
+    supabase.from("impostazioni_azienda").select("*").eq("id",1).maybeSingle().then(({data}) => {
+      setAzienda(data || {});
+    });
+  }, []);
+
+  const cambiaPassword = async () => {
+    setMsgPwd(null);
+    if (pwd.nuova.length < 8) { setMsgPwd({tipo:"err", txt:"La password deve essere di almeno 8 caratteri"}); return; }
+    if (pwd.nuova !== pwd.conferma) { setMsgPwd({tipo:"err", txt:"Le password non coincidono"}); return; }
+    setSavingPwd(true);
+    const {error} = await supabase.auth.updateUser({ password: pwd.nuova });
+    setSavingPwd(false);
+    if (error) { setMsgPwd({tipo:"err", txt:"Errore: "+error.message}); return; }
+    setMsgPwd({tipo:"ok", txt:"✓ Password aggiornata"});
+    setPwd({ nuova:"", conferma:"" });
+  };
+
+  const cambiaTema = (t) => {
+    setTema(t);
+    localStorage.setItem("kendo_tema", t);
+    document.documentElement.setAttribute("data-tema", t);
+  };
+
+  const salvaAzienda = async () => {
+    setSavingAz(true);
+    const patch = {
+      ragione_sociale: azienda.ragione_sociale, partita_iva: azienda.partita_iva,
+      codice_fiscale: azienda.codice_fiscale, indirizzo: azienda.indirizzo,
+      citta: azienda.citta, cap: azienda.cap, telefono: azienda.telefono,
+      email: azienda.email, sito: azienda.sito, iban: azienda.iban,
+      pec: azienda.pec, sdi: azienda.sdi, insegna: azienda.insegna,
+      updated_at: new Date().toISOString(),
+    };
+    const {error} = await supabase.from("impostazioni_azienda").update(patch).eq("id",1);
+    setSavingAz(false);
+    if (!error) setEditAz(false);
+  };
+
+  const upd = (k,v) => setAzienda(a => ({...a, [k]: v}));
+  const lbl = { fontSize:10, color:K.muted, fontWeight:600, textTransform:"uppercase", letterSpacing:0.5, marginBottom:4, display:"block" };
+  const inp = { width:"100%", padding:"9px 11px", fontSize:13, background:"#0e0e0e", border:`1px solid ${K.border}`, borderRadius:8, color:K.white, outline:"none", boxSizing:"border-box", fontFamily:"inherit" };
+
+  return (
+    <div>
+      {/* PROFILO UTENTE */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:10}}>👤 Profilo</div>
+        <div style={{display:"flex", alignItems:"center", gap:14}}>
+          <div style={{width:54, height:54, borderRadius:"50%", background:`linear-gradient(135deg, #fbbf24, ${K.gold})`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:22, fontWeight:700, color:"#000"}}>
+            {(me?.email||"?")[0].toUpperCase()}
+          </div>
+          <div style={{flex:1}}>
+            <div style={{fontSize:14, fontWeight:600, color:K.white}}>{me?.email || "—"}</div>
+            <div style={{fontSize:11, color:K.muted, marginTop:2}}>Amministratore · Ultimo accesso: {me?.last_sign_in_at ? new Date(me.last_sign_in_at).toLocaleString("it-IT") : "—"}</div>
+          </div>
         </div>
-      )}
+      </div>
+
+      {/* CAMBIO PASSWORD */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:10}}>🔒 Cambia password</div>
+        <label style={lbl}>Nuova password</label>
+        <input type="password" value={pwd.nuova} onChange={e=>setPwd({...pwd, nuova:e.target.value})} placeholder="Almeno 8 caratteri" style={inp} autoComplete="new-password"/>
+        <label style={{...lbl, marginTop:10}}>Conferma nuova password</label>
+        <input type="password" value={pwd.conferma} onChange={e=>setPwd({...pwd, conferma:e.target.value})} placeholder="Ripeti la password" style={inp} autoComplete="new-password"/>
+        {msgPwd && <div style={{marginTop:10, fontSize:12, color: msgPwd.tipo==="ok" ? K.success : K.danger}}>{msgPwd.txt}</div>}
+        <button onClick={cambiaPassword} disabled={savingPwd || !pwd.nuova || !pwd.conferma} style={{...B("gold",{width:"100%", padding:"10px 12px", marginTop:12, opacity:(savingPwd||!pwd.nuova)?0.5:1})}}>
+          {savingPwd ? "Salvataggio..." : "Aggiorna password"}
+        </button>
+      </div>
+
+      {/* TEMA */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:6}}>🎨 Aspetto</div>
+        <div style={{fontSize:11, color:K.muted, marginBottom:12}}>L'app è ottimizzata per il tema scuro. Il tema chiaro è in roadmap (refactor colori in corso).</div>
+        <div style={{display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:8}}>
+          {[["scuro","🌙 Scuro"],["chiaro","☀ Chiaro"],["sistema","💻 Sistema"]].map(([k,lab])=>(
+            <button key={k} onClick={()=>cambiaTema(k)} style={{
+              padding:"12px 10px", fontSize:12, fontWeight:600,
+              border:`2px solid ${tema===k?K.gold:K.border}`,
+              background: tema===k?K.goldBg:"transparent",
+              color: tema===k?K.gold:K.mutedLight,
+              borderRadius:10, cursor:"pointer", fontFamily:"inherit"
+            }}>{lab}</button>
+          ))}
+        </div>
+        {tema!=="scuro" && <div style={{fontSize:11, color:"#f59e0b", marginTop:10}}>⚠ Preferenza salvata. Il tema {tema} verrà attivato non appena completiamo il refactor colori.</div>}
+      </div>
+
+      {/* DATI AZIENDALI */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+          <div style={{fontSize:13, fontWeight:600, color:K.gold}}>🏢 Dati aziendali</div>
+          {!editAz && <button onClick={()=>setEditAz(true)} style={B("ghost",{padding:"5px 12px", fontSize:11})}>✏ Modifica</button>}
+        </div>
+        {!azienda ? <div style={{fontSize:12, color:K.muted}}>Caricamento...</div> : !editAz ? (
+          <div style={{fontSize:13, lineHeight:1.7, color:K.mutedLight}}>
+            <div><span style={{color:K.muted, fontSize:11}}>Ragione sociale:</span> <strong style={{color:K.white}}>{azienda.ragione_sociale || "—"}</strong></div>
+            <div><span style={{color:K.muted, fontSize:11}}>Insegna:</span> {azienda.insegna || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>P. IVA:</span> {azienda.partita_iva || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>C.F.:</span> {azienda.codice_fiscale || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>Indirizzo:</span> {azienda.indirizzo || "—"} {azienda.cap || ""} {azienda.citta || ""}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>Telefono:</span> {azienda.telefono || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>Email:</span> {azienda.email || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>PEC:</span> {azienda.pec || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>Codice SDI:</span> {azienda.sdi || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>IBAN:</span> {azienda.iban || "—"}</div>
+            <div><span style={{color:K.muted, fontSize:11}}>Sito web:</span> {azienda.sito || "—"}</div>
+          </div>
+        ) : (
+          <div>
+            <div style={{display:"grid", gridTemplateColumns:"2fr 1fr", gap:8}}>
+              <div><label style={lbl}>Ragione sociale</label><input value={azienda.ragione_sociale||""} onChange={e=>upd("ragione_sociale", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>Insegna</label><input value={azienda.insegna||""} onChange={e=>upd("insegna", e.target.value)} style={inp}/></div>
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8}}>
+              <div><label style={lbl}>P. IVA</label><input value={azienda.partita_iva||""} onChange={e=>upd("partita_iva", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>Codice Fiscale</label><input value={azienda.codice_fiscale||""} onChange={e=>upd("codice_fiscale", e.target.value)} style={inp}/></div>
+            </div>
+            <div style={{marginTop:8}}><label style={lbl}>Indirizzo</label><input value={azienda.indirizzo||""} onChange={e=>upd("indirizzo", e.target.value)} style={inp}/></div>
+            <div style={{display:"grid", gridTemplateColumns:"2fr 1fr 1fr", gap:8, marginTop:8}}>
+              <div><label style={lbl}>Città</label><input value={azienda.citta||""} onChange={e=>upd("citta", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>CAP</label><input value={azienda.cap||""} onChange={e=>upd("cap", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>Telefono</label><input value={azienda.telefono||""} onChange={e=>upd("telefono", e.target.value)} style={inp}/></div>
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8}}>
+              <div><label style={lbl}>Email</label><input value={azienda.email||""} onChange={e=>upd("email", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>PEC</label><input value={azienda.pec||""} onChange={e=>upd("pec", e.target.value)} style={inp}/></div>
+            </div>
+            <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginTop:8}}>
+              <div><label style={lbl}>Codice SDI</label><input value={azienda.sdi||""} onChange={e=>upd("sdi", e.target.value)} style={inp}/></div>
+              <div><label style={lbl}>Sito web</label><input value={azienda.sito||""} onChange={e=>upd("sito", e.target.value)} style={inp}/></div>
+            </div>
+            <div style={{marginTop:8}}><label style={lbl}>IBAN</label><input value={azienda.iban||""} onChange={e=>upd("iban", e.target.value)} style={{...inp, fontFamily:"monospace"}}/></div>
+            <div style={{display:"flex", gap:8, marginTop:14}}>
+              <button onClick={()=>setEditAz(false)} style={B("ghost",{flex:1, padding:"10px"})}>Annulla</button>
+              <button onClick={salvaAzienda} disabled={savingAz} style={{...B("gold",{flex:2, padding:"10px", opacity:savingAz?0.5:1})}}>{savingAz?"Salvataggio...":"Salva modifiche"}</button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* SICUREZZA */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:10}}>🛡 Sicurezza</div>
+        <button onClick={async()=>{
+          if(!window.confirm("Sicuro di voler uscire da tutti i dispositivi? Dovrai effettuare di nuovo il login ovunque.")) return;
+          await supabase.auth.signOut({ scope: "global" });
+          window.location.reload();
+        }} style={B("ghost",{width:"100%", padding:"11px", color:K.danger, borderColor:K.danger+"55"})}>
+          Esci da tutti i dispositivi
+        </button>
+      </div>
+
+      {/* INFO SISTEMA */}
+      <div style={C({padding:14})}>
+        <div style={{fontSize:11, color:K.muted, textAlign:"center"}}>
+          Kendo App · v1.0 · Kendo SRLS<br/>
+          <a href="https://kendosrls.com" target="_blank" rel="noreferrer" style={{color:K.gold, textDecoration:"none"}}>kendosrls.com</a>
+        </div>
+      </div>
     </div>
   );
 }
