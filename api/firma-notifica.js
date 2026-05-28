@@ -117,20 +117,47 @@ export default async function handler(req, res) {
 </body>
 </html>`;
 
-    // 4a. Invia email all'ADMIN (con tutti i dettagli)
+    // 4-pre. Genera il PDF con i documenti firmati (best-effort, non blocca le email)
+    let pdfBase64 = null, pdfFilename = null;
+    try {
+      const proto = req.headers["x-forwarded-proto"] || "https";
+      const host = req.headers["host"] || "kendo-app-weld.vercel.app";
+      const pdfRes = await fetch(`${proto}://${host}/api/firma-pdf`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ richiesta_id: richiesta.id }),
+      });
+      if (pdfRes.ok) {
+        const pdfJson = await pdfRes.json();
+        if (pdfJson.ok) {
+          pdfBase64 = pdfJson.pdf_base64;
+          pdfFilename = pdfJson.filename;
+        }
+      } else {
+        console.warn("firma-pdf failed (non-blocking):", pdfRes.status);
+      }
+    } catch (e) {
+      console.warn("firma-pdf exception (non-blocking):", e.message);
+    }
+
+    // 4a. Invia email all'ADMIN (con tutti i dettagli + PDF allegato)
     const sendEmail = async (to, subject, htmlBody) => {
+      const payload = {
+        from: `${FROM_NAME} <${FROM_EMAIL}>`,
+        to: Array.isArray(to) ? to : [to],
+        subject,
+        html: htmlBody,
+      };
+      if (pdfBase64 && pdfFilename) {
+        payload.attachments = [{ filename: pdfFilename, content: pdfBase64 }];
+      }
       const r = await fetch("https://api.resend.com/emails", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${RESEND_API_KEY}`,
         },
-        body: JSON.stringify({
-          from: `${FROM_NAME} <${FROM_EMAIL}>`,
-          to: Array.isArray(to) ? to : [to],
-          subject,
-          html: htmlBody,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await r.json();
       return { ok: r.ok, status: r.status, data };
