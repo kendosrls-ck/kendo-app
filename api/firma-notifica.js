@@ -17,9 +17,11 @@ const RESEND_API_KEY = process.env.RESEND_API_KEY;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.REACT_APP_SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-// Destinatario admin (l'unico autorizzato in modalità Resend free senza dominio verificato)
+// Destinatari email
 const ADMIN_EMAIL = "kendosrls@gmail.com";
-const FROM_EMAIL = "onboarding@resend.dev"; // mittente di default Resend (no dominio verificato)
+// Mittente professionale dal dominio verificato kendosrls.com
+const FROM_EMAIL = "firme@kendosrls.com";
+const FROM_NAME = "Kendo Firme";
 
 export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -115,36 +117,94 @@ export default async function handler(req, res) {
 </body>
 </html>`;
 
-    // 4. Invia email via Resend
-    const r = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${RESEND_API_KEY}`,
-      },
-      body: JSON.stringify({
-        from: `Kendo Firme <${FROM_EMAIL}>`,
-        to: [ADMIN_EMAIL],
-        subject: `✓ Firma completata: ${nomeCliente}`,
-        html,
-      }),
-    });
+    // 4a. Invia email all'ADMIN (con tutti i dettagli)
+    const sendEmail = async (to, subject, htmlBody) => {
+      const r = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${RESEND_API_KEY}`,
+        },
+        body: JSON.stringify({
+          from: `${FROM_NAME} <${FROM_EMAIL}>`,
+          to: Array.isArray(to) ? to : [to],
+          subject,
+          html: htmlBody,
+        }),
+      });
+      const data = await r.json();
+      return { ok: r.ok, status: r.status, data };
+    };
 
-    const data = await r.json();
-    if (!r.ok) {
-      console.error("Resend error:", r.status, data);
-      return res.status(502).json({ ok: false, error: data?.message || "Errore invio email", status: r.status });
+    const adminRes = await sendEmail(ADMIN_EMAIL, `✓ Firma completata: ${nomeCliente}`, html);
+    if (!adminRes.ok) {
+      console.error("Resend admin error:", adminRes.status, adminRes.data);
+      return res.status(502).json({ ok: false, error: adminRes.data?.message || "Errore invio email admin", status: adminRes.status });
+    }
+
+    // 4b. Invia email al CLIENTE (versione semplificata di conferma) — solo se ha email valida
+    let emailClienteId = null;
+    if (richiesta.firmatario_email) {
+      const htmlCliente = `
+<!DOCTYPE html>
+<html lang="it">
+<head><meta charset="UTF-8"><title>Firma completata</title></head>
+<body style="margin:0;padding:0;background:#f3f4f6;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+  <div style="max-width:600px;margin:0 auto;padding:24px;">
+    <div style="background:white;border-radius:12px;padding:32px;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+      <div style="text-align:center;margin-bottom:24px;">
+        <div style="display:inline-block;background:#D4A843;color:#080808;padding:8px 16px;border-radius:8px;font-weight:700;font-size:14px;letter-spacing:2px;">KENDO</div>
+      </div>
+      <h1 style="font-size:22px;color:#080808;margin:0 0 16px;text-align:center;">Grazie ${escapeHtml(richiesta.firmatario_nome || "")}! ✓</h1>
+      <p style="font-size:15px;color:#333;line-height:1.6;text-align:center;margin-bottom:24px;">
+        La tua firma è stata registrata correttamente. Documento: <strong>${escapeHtml(tipoDoc)}</strong>.
+      </p>
+      <div style="background:#fafaf7;border:1px solid #e5e5e0;border-radius:8px;padding:16px;margin-bottom:24px;">
+        <div style="font-size:11px;color:#666;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Riepilogo</div>
+        <div style="font-size:13px;color:#333;line-height:1.8;">
+          🕐 Data firma: <strong>${dataFirma}</strong><br>
+          🔖 ID transazione: <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px;font-size:12px;">${idTransazione}</code><br>
+          ✍️ Firme apposte: <strong>${(firme || []).length}</strong>
+        </div>
+      </div>
+      <p style="font-size:13px;color:#666;line-height:1.6;text-align:center;margin-bottom:8px;">
+        Conserviamo i tuoi documenti firmati nel nostro sistema con audit log immutabile per garantirne la validità legale (eIDAS).
+      </p>
+      <p style="font-size:13px;color:#666;line-height:1.6;text-align:center;">
+        Per qualsiasi chiarimento, scrivici a <a href="mailto:${ADMIN_EMAIL}" style="color:#D4A843;">${ADMIN_EMAIL}</a>.
+      </p>
+      <div style="text-align:center;color:#999;font-size:11px;margin-top:24px;line-height:1.5;border-top:1px solid #e5e5e0;padding-top:16px;">
+        Fit And Go Padova · Kendo SRLS<br>
+        Ti aspettiamo in centro 💪⚡
+      </div>
+    </div>
+  </div>
+</body>
+</html>`;
+      const clientRes = await sendEmail(richiesta.firmatario_email, `Firma completata - Fit And Go Padova`, htmlCliente);
+      if (clientRes.ok) {
+        emailClienteId = clientRes.data?.id;
+      } else {
+        console.warn("Resend cliente error (non-blocking):", clientRes.status, clientRes.data);
+      }
     }
 
     // 5. Audit log dell'invio email
+    const recipients = [ADMIN_EMAIL];
+    if (emailClienteId) recipients.push(richiesta.firmatario_email);
     await sb.from("ksign_audit_log").insert({
       richiesta_id: richiesta.id,
       evento: "email_notifica_inviata",
-      descrizione: `Email notifica inviata a ${ADMIN_EMAIL}`,
+      descrizione: `Email notifica inviata a ${recipients.join(", ")}`,
       attore_tipo: "sistema",
     }).catch(() => {});
 
-    return res.status(200).json({ ok: true, email_id: data?.id, to: ADMIN_EMAIL });
+    return res.status(200).json({
+      ok: true,
+      email_admin_id: adminRes.data?.id,
+      email_cliente_id: emailClienteId,
+      to: recipients,
+    });
   } catch (e) {
     console.error("firma-notifica exception:", e);
     return res.status(500).json({ ok: false, error: e.message });
