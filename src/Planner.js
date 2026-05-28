@@ -140,15 +140,19 @@ export default function Planner() {
           <div style={{ fontWeight: 600, fontSize: 16 }}>Planner</div>
           <div style={{ fontSize: 12, color: K.muted, marginTop: 2 }}>{appuntamenti.length} appuntamenti il {labelGiorno}</div>
         </div>
-        <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "wrap" }}>
-          <button onClick={() => cambiaMese(-1)} title="Mese precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>«</button>
-          <button onClick={() => cambiaGiorno(-7)} title="Settimana precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>‹‹</button>
-          <button onClick={() => cambiaGiorno(-1)} title="Giorno precedente" style={btn("ghost", { padding: "6px 12px" })}>◀</button>
-          <button onClick={oggi} style={btn(isOggi ? "primary" : "ghost", { padding: "6px 14px", fontSize: 12 })}>Oggi</button>
-          <input type="date" value={giorno} min={minDate} max={maxDate} onChange={e => setGiorno(e.target.value)} style={{ background: K.surface, border: `1px solid ${K.border}`, color: K.text, borderRadius: 6, padding: "6px 8px", fontSize: 12 }} />
-          <button onClick={() => cambiaGiorno(1)} title="Giorno successivo" style={btn("ghost", { padding: "6px 12px" })}>▶</button>
-          <button onClick={() => cambiaGiorno(7)} title="Settimana successiva" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>››</button>
-          <button onClick={() => cambiaMese(1)} title="Mese successivo" style={btn("ghost", { padding: "6px 10px", fontSize: 11 })}>»</button>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8, alignItems: "flex-end" }}>
+          {/* Riga 1: pulsanti navigazione tutti insieme, senza wrap */}
+          <div style={{ display: "flex", gap: 4, alignItems: "center", flexWrap: "nowrap" }}>
+            <button onClick={() => cambiaMese(-1)} title="Mese precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11, minWidth: 32 })}>«</button>
+            <button onClick={() => cambiaGiorno(-7)} title="Settimana precedente" style={btn("ghost", { padding: "6px 10px", fontSize: 11, minWidth: 32 })}>‹‹</button>
+            <button onClick={() => cambiaGiorno(-1)} title="Giorno precedente" style={btn("ghost", { padding: "6px 12px", minWidth: 36 })}>◀</button>
+            <button onClick={oggi} style={btn(isOggi ? "primary" : "ghost", { padding: "6px 16px", fontSize: 12, minWidth: 60 })}>Oggi</button>
+            <button onClick={() => cambiaGiorno(1)} title="Giorno successivo" style={btn("ghost", { padding: "6px 12px", minWidth: 36 })}>▶</button>
+            <button onClick={() => cambiaGiorno(7)} title="Settimana successiva" style={btn("ghost", { padding: "6px 10px", fontSize: 11, minWidth: 32 })}>››</button>
+            <button onClick={() => cambiaMese(1)} title="Mese successivo" style={btn("ghost", { padding: "6px 10px", fontSize: 11, minWidth: 32 })}>»</button>
+          </div>
+          {/* Riga 2: date picker, larghezza piena ma limitata */}
+          <input type="date" value={giorno} min={minDate} max={maxDate} onChange={e => setGiorno(e.target.value)} style={{ background: K.surface, border: `1px solid ${K.border}`, color: K.text, borderRadius: 6, padding: "6px 10px", fontSize: 12, maxWidth: 200, boxSizing: "border-box" }} />
         </div>
       </div>
 
