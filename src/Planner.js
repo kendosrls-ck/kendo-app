@@ -239,13 +239,15 @@ function ModalNuovo({ slot, clienti, onClose, onSaved }) {
   const [nuovoCli, setNuovoCli] = useState({ nome: "", cognome: "", email: "", telefono: "" });
 
   const filtered = useMemo(() => {
-    if (!search || search.length < 2) return [];
-    const s = search.toLowerCase();
-    return clienti.filter(c =>
-      (c.nome || "").toLowerCase().includes(s) ||
-      (c.cognome || "").toLowerCase().includes(s) ||
-      (c.cellulare || "").includes(s)
-    ).slice(0, 8);
+    if (!search || search.trim().length < 1) return [];
+    const norm = (s) => (s || "").toString().toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    const tokens = norm(search).split(/\s+/).filter(Boolean);
+    if (!tokens.length) return [];
+    return clienti.filter(c => {
+      const haystack = `${norm(c.nome)} ${norm(c.cognome)} ${norm(c.email)} ${(c.cellulare || "").replace(/\D/g, "")}`;
+      // Tutti i token devono apparire nel campo concatenato (AND)
+      return tokens.every(t => haystack.includes(t));
+    }).slice(0, 8);
   }, [search, clienti]);
 
   const oraFineCalc = useMemo(() => fromMin(toMin(slot.ora_inizio) + Number(durata || 30)), [slot.ora_inizio, durata]);
@@ -327,8 +329,8 @@ function ModalNuovo({ slot, clienti, onClose, onSaved }) {
               ))}
             </div>
           )}
-          {search.length >= 2 && filtered.length === 0 && (
-            <div style={{ marginTop: 8, fontSize: 12, color: K.muted }}>Nessun cliente trovato.</div>
+          {search.trim().length >= 1 && filtered.length === 0 && (
+            <div style={{ marginTop: 8, fontSize: 12, color: K.muted }}>Nessun cliente trovato con "{search}". Verifica l'ortografia o crea uno nuovo.</div>
           )}
           <button onClick={() => setCreaNuovo(true)} style={btn("ghost", { marginTop: 8, fontSize: 12, padding: "8px 10px", width: "100%" })}>+ Inserisci nuovo cliente</button>
         </>
