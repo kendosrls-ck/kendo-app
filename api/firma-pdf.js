@@ -119,9 +119,37 @@ async function generaPdf(richiesta, firme, consensi) {
   // DATI CLIENTE
   drawText("DATI FIRMATARIO", { bold: true, size: 11, color: gold });
   y -= 3;
-  drawText(`Nome: ${richiesta.firmatario_nome || "—"} ${richiesta.firmatario_cognome || ""}`, { size: 10 });
+  drawText(`Nome e Cognome: ${richiesta.firmatario_nome || "—"} ${richiesta.firmatario_cognome || ""}`, { size: 10 });
+  if (richiesta.luogo_nascita || richiesta.data_nascita) {
+    const ln = richiesta.luogo_nascita || "—";
+    const dn = richiesta.data_nascita ? new Date(richiesta.data_nascita).toLocaleDateString("it-IT") : "—";
+    drawText(`Luogo e data di nascita: ${ln} - ${dn}`, { size: 10 });
+  }
+  if (richiesta.codice_fiscale) drawText(`Codice Fiscale: ${richiesta.codice_fiscale}`, { size: 10 });
+  if (richiesta.indirizzo || richiesta.citta) {
+    const ind = richiesta.indirizzo || "—";
+    const cit = richiesta.citta || "—";
+    const cap = richiesta.cap || "";
+    const pr = richiesta.provincia ? `(${richiesta.provincia})` : "";
+    drawText(`Indirizzo: ${ind}, ${cap} ${cit} ${pr}`.trim(), { size: 10 });
+  }
   drawText(`Email: ${richiesta.firmatario_email || "—"}`, { size: 10 });
   drawText(`Telefono: ${richiesta.firmatario_telefono || "—"}`, { size: 10 });
+  if (richiesta.occupazione) drawText(`Occupazione: ${richiesta.occupazione}`, { size: 10 });
+  if (richiesta.tipo_documento || richiesta.numero_documento) {
+    const tdMap = { carta_identita: "Carta d'identità", patente: "Patente", passaporto: "Passaporto", tessera_sanitaria: "Tessera sanitaria" };
+    const td = tdMap[richiesta.tipo_documento] || richiesta.tipo_documento || "Documento";
+    drawText(`${td}: ${richiesta.numero_documento || "—"}`, { size: 10 });
+  }
+  if (richiesta.come_conosciuto) {
+    const ckMap = {
+      insegna_passaggio: "Insegna / passaggio", internet: "Internet / sito web",
+      pubblicita_tradizionale: "Pubblicità tradizionale", volantinaggio: "Volantinaggio",
+      social_network: "Social network", amico: "Amico", altro: "Altro",
+    };
+    drawText(`Come ha conosciuto Fit And Go: ${ckMap[richiesta.come_conosciuto] || richiesta.come_conosciuto}`, { size: 10 });
+  }
+  if (richiesta.preferenza_comunicazione) drawText(`Preferenza comunicazioni: ${richiesta.preferenza_comunicazione.toUpperCase()}`, { size: 10 });
   if (richiesta.dati_compilati && Object.keys(richiesta.dati_compilati).length > 0) {
     const d = richiesta.dati_compilati;
     if (d.pacchetto) drawText(`Pacchetto: ${d.pacchetto}`, { size: 10 });
@@ -131,28 +159,61 @@ async function generaPdf(richiesta, firme, consensi) {
   y -= 5;
   drawSeparator();
 
-  // LIBERATORIA (se presente)
+  // LIBERATORIA (testo ufficiale Fit And Go)
   if ((richiesta.template_codici || []).includes("liberatoria_fitgo")) {
-    drawText("DICHIARAZIONE LIBERATORIA DI RESPONSABILITÀ", { bold: true, size: 12, color: gold });
-    y -= 3;
-    drawText("Il sottoscritto dichiara di essere in condizioni psicofisiche idonee all'attività di allenamento EMS / Vacufit, di non avere patologie incompatibili (epilessia, pacemaker, gravidanza, cardiopatie, ernia, problemi renali, malattie neurologiche, diabete), di non aver assunto sostanze, alcolici o farmaci nelle 48h precedenti, di conoscere i rischi dell'attività e di osservare le norme di sicurezza del centro.", { size: 9 });
+    nuovaPagina();
+    drawText("DICHIARAZIONE LIBERATORIA DI RESPONSABILITA'", { bold: true, size: 12, color: gold });
     y -= 4;
-    drawText("Approva specificamente, ai sensi degli artt. 1341 e 1342 del Codice Civile, le clausole vessatorie del contratto: limitazioni di responsabilità, foro competente di Padova, condizioni di recesso.", { size: 9 });
+    drawText("Il/la sottoscritto/a dichiara di essere in possesso di certificazione medica per l'idoneità all'attività sportiva non agonistica, di sana e robusta costituzione.", { size: 9 });
+    y -= 4;
+    drawText("DICHIARA INOLTRE:", { bold: true, size: 10 });
+    y -= 2;
+    drawText("1. Di essere in condizioni psicofisiche idonee per l'attività in questione.", { size: 9 });
+    drawText("2. Di non avere: epilessia, pacemaker cardiaco, gravidanza, malattie cardiache e cardiovascolari, ernia addominale o inguinale, problemi renali, tubercolosi, malattie tumorali, arteriosclerosi in stadio avanzato, disturbi arteriosi della circolazione sanguigna, malattie neurologiche, diabete mellito, malattie febbrili, acuti processi batterici e virali, sanguinamenti, tendenza al sanguinamento pesante (emofilia), malattie della pelle.", { size: 9 });
+    drawText("3. Di non aver assunto e di non assumere, nelle 48 ore precedenti la lezione, sostanze stupefacenti e/o psicotrope, di non essere sotto l'effetto di farmaci, di non aver ecceduto nel consumo di bevande alcoliche e cibo, ma di essermi nutrito ed idratato a sufficienza (almeno 0,5 l di acqua o di bevande minerali).", { size: 9 });
+    drawText("4. Di essere a conoscenza dei rischi, prevedibili ed imprevedibili, connessi alla pratica dell'attività pur non potendosi considerare tale un'attività potenzialmente pericolosa.", { size: 9 });
+    drawText("5. Di conoscere e di attenermi prima, durante e dopo l'attività, a tutte le norme, disposizioni di sicurezza e limitazioni concesse e relative alla tecnica delle attività svolte nel centro, anche in considerazione del proprio livello di tenuta fisica e di esperienza.", { size: 9 });
+    drawText("6. Di assumermi, sin da ora, ogni e qualsiasi responsabilità riguardo la mia persona per danni procurati ad altri (e/o a cose) a causa di un comportamento non conforme alle norme di buona tecnica dell'attività od obiettivamente irresponsabile.", { size: 9 });
+    drawText("7. Di aver letto e valutato attentamente il contenuto del presente documento e di aver compreso chiaramente il significato di ogni punto prima di sottoscriverlo. A tal fine dichiaro di esonerare Fit & Go Srl da qualsiasi responsabilità in ordine all'esecuzione dell'attività.", { size: 9 });
+    y -= 4;
+    drawText("Agli effetti degli artt. 1341 e 1342 del Codice Civile, dichiaro di approvare specificatamente i punti: 1, 2, 3, 4, 5, 6, 7 della presente scrittura.", { bold: true, size: 9 });
     y -= 5;
     drawSeparator();
   }
 
-  // CONTRATTO (se presente)
+  // CONTRATTO (testo ufficiale Fit And Go)
   if ((richiesta.template_codici || []).includes("contratto_fitgo")) {
-    drawText("CONDIZIONI GENERALI DI CONTRATTO", { bold: true, size: 12, color: gold });
-    y -= 3;
-    drawText("1. Tariffe e durata: contratto annuale, nominativo, non cedibile.", { size: 9 });
-    drawText("2. Quote e spese: pagamento dovuto anche in caso di non utilizzo.", { size: 9 });
-    drawText("3. Metodi di pagamento: carta/bancomat/PagoDIL/bonifico/contanti.", { size: 9 });
-    drawText("4. Certificato medico: obbligatorio per partecipare alle attività.", { size: 9 });
-    drawText("5. Responsabilità civile: il centro non risponde per furti o danni a beni personali.", { size: 9 });
-    drawText("6. Foro competente: Padova.", { size: 9 });
-    drawText("7. Condotta: divieti di scarpe esterne, animali, fumo, alcolici nei locali.", { size: 9 });
+    nuovaPagina();
+    drawText("CONDIZIONI GENERALI DI CONTRATTO FIT AND GO", { bold: true, size: 12, color: gold });
+    y -= 4;
+    drawText("Il presente contratto disciplina il rapporto contrattuale tra il CLIENTE e KENDO SRLS che utilizza il marchio FIT AND GO per la fornitura dei servizi previsti dal contratto.", { size: 9 });
+    y -= 4;
+    drawText("1. TARIFFE E DURATA", { bold: true, size: 10 });
+    drawText("Il presente contratto ha durata annuale e si rinnova con il pagamento dell'iscrizione. La decorrenza inizia dalla data di sottoscrizione. Il contratto è nominativo e non cedibile ad altra persona e/o cliente. Pacchetti disponibili: Abbonamento Mensile, Trimestrale, Semestrale, Annuale, Misto (EMS/Sintesi/Vacufit/Vacustep), Carnet 10 o 25 sessioni, Criofit (10/25 sedute o Unlimited 1/6 mesi), Open 1/6/12 mesi. La durata decorre dalla data del primo allenamento. Tutte le sedute devono essere disdette almeno 24 ore prima, altrimenti vengono scalate.", { size: 9 });
+    y -= 4;
+    drawText("2. QUOTE E SPESE", { bold: true, size: 10 });
+    drawText("L'obbligo al pagamento delle quote sussiste anche nel caso in cui il Cliente non possa usufruire delle prestazioni, salvo gravidanza, malattie gravi o infortuni di durata maggiore a 6 mesi certificati, impedimenti lavorativi superiori a 2 mesi certificati. Sospensione facoltativa fino a 60 giorni con preavviso scritto di 30 giorni. In caso di ritardo nei pagamenti superiore a 2 settimane FIT AND GO può risolvere il contratto e adire vie legali.", { size: 9 });
+    y -= 4;
+    drawText("3. METODI DI PAGAMENTO", { bold: true, size: 10 });
+    drawText("Carta di credito, bancomat, PagoDIL/APPAGO, Service Pay, assegno, bonifico, contanti. Spese bancarie per addebiti non andati a buon fine a carico del Cliente. Dopo il secondo tentativo di addebito non riuscito, FIT AND GO può disdire l'abbonamento.", { size: 9 });
+    y -= 4;
+    drawText("4. REGOLAMENTO INTERNO", { bold: true, size: 10 });
+    drawText("Il Cliente dichiara di aver preso visione del regolamento interno esposto in reception. La mancata osservanza dopo un'ammonizione comporta risoluzione immediata del contratto, senza diritto al rimborso delle sessioni non effettuate.", { size: 9 });
+    y -= 4;
+    drawText("5. INFORMAZIONE SANITARIA", { bold: true, size: 10 });
+    drawText("Il Cliente dichiara di essere in buona salute psico-fisica, di essere idoneo alla pratica sportiva non agonistica e all'uso di macchinari EMS e Criosauna. È OBBLIGATORIA la consegna di certificazione medica in originale non autocertificata, da rinnovarsi ogni 12 mesi.", { size: 9 });
+    y -= 4;
+    drawText("6. RESPONSABILITA' CIVILE", { bold: true, size: 10 });
+    drawText("FIT AND GO non offre servizio di custodia dei beni del Cliente e non risponde per furti, danni o smarrimenti. Per danni alle attrezzature o a persone causati da uso indebito, il Cliente sarà ritenuto responsabile.", { size: 9 });
+    y -= 4;
+    drawText("7. FORO COMPETENTE", { bold: true, size: 10 });
+    drawText("Per ogni controversia relativa al presente contratto è competente il foro di Padova.", { size: 9 });
+    y -= 4;
+    drawText("8. CONDOTTA DEL CLIENTE", { bold: true, size: 10 });
+    drawText("All'interno di FIT AND GO è tassativamente vietato: indossare scarpe da ginnastica usate anche all'esterno, introdurre animali, fumare, bere alcolici, fare uso di sostanze stupefacenti, mangiare (salvo prodotti FIT AND GO). Richiesto abbigliamento decoroso e condotta rispettosa.", { size: 9 });
+    y -= 4;
+    drawText("CLAUSOLE VESSATORIE (artt. 1341-1342 C.C.)", { bold: true, size: 10, color: gold });
+    drawText("Si approvano espressamente le clausole 1 (Tariffe e durata), 2 (Quote e spese), 3 (Metodi di pagamento), 4 (Regolamento interno), 5 (Informazione sanitaria), 6 (Responsabilità civile), 8 (Condotta del cliente).", { bold: true, size: 9 });
     y -= 5;
     drawSeparator();
   }

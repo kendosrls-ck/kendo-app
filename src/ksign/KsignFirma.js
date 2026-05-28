@@ -42,6 +42,24 @@ export default function KsignFirma() {
   const [done, setDone] = useState(false);
   const [transId, setTransId] = useState(null);
 
+  // Dati anagrafici (Step 1)
+  const [anagrafica, setAnagrafica] = useState({
+    codice_fiscale: "",
+    data_nascita: "",
+    luogo_nascita: "",
+    indirizzo: "",
+    citta: "",
+    cap: "",
+    provincia: "",
+    occupazione: "",
+    tipo_documento: "carta_identita",
+    numero_documento: "",
+    come_conosciuto: "",
+    preferenza_comunicazione: "email",
+  });
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState("");
+
   const padRefs = useRef({});
 
   // ===== LOAD =====
@@ -60,6 +78,22 @@ export default function KsignFirma() {
       (tpl || []).forEach(t => tplMap[t.codice] = t);
       setRichiesta(r);
       setTemplates(tplMap);
+      // pre-popola eventuali anagrafici già salvati
+      setAnagrafica(a => ({
+        ...a,
+        codice_fiscale: r.codice_fiscale || a.codice_fiscale,
+        data_nascita: r.data_nascita || a.data_nascita,
+        luogo_nascita: r.luogo_nascita || a.luogo_nascita,
+        indirizzo: r.indirizzo || a.indirizzo,
+        citta: r.citta || a.citta,
+        cap: r.cap || a.cap,
+        provincia: r.provincia || a.provincia,
+        occupazione: r.occupazione || a.occupazione,
+        tipo_documento: r.tipo_documento || a.tipo_documento,
+        numero_documento: r.numero_documento || a.numero_documento,
+        come_conosciuto: r.come_conosciuto || a.come_conosciuto,
+        preferenza_comunicazione: r.preferenza_comunicazione || a.preferenza_comunicazione,
+      }));
       setLoading(false);
       // mark viewed
       if (r.stato === "pending") {
@@ -102,11 +136,74 @@ export default function KsignFirma() {
     const prev = consents[letter];
     setConsents(c => ({ ...c, [letter]: value }));
     if (prev !== null && prev !== value) {
-      // invalida firma consenso
       const sigMap = { A: 3, B: 4, C: 5, D: 6 };
       const n = sigMap[letter];
       padRefs.current[n]?.clear();
       setSignatures(s => { const c = { ...s }; delete c[n]; return c; });
+    }
+  };
+
+  // ===== SCAN TESSERA SANITARIA / CF =====
+  const onScanCF = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setScanError("");
+    setScanLoading(true);
+    try {
+      const reader = new FileReader();
+      const dataUrl = await new Promise((resolve, reject) => {
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+      const base64 = String(dataUrl).split(",")[1];
+      const r = await fetch("/api/cf-vision", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileBase64: base64, mediaType: file.type }),
+      });
+      const j = await r.json();
+      if (!j.ok || !j.dati) {
+        setScanError(j.error || "Non sono riuscito a leggere il documento. Compila a mano i campi.");
+        setScanLoading(false);
+        return;
+      }
+      const d = j.dati;
+      setAnagrafica(a => ({
+        ...a,
+        codice_fiscale: d.codice_fiscale || a.codice_fiscale,
+        data_nascita: d.data_nascita || a.data_nascita,
+        luogo_nascita: d.luogo_nascita || a.luogo_nascita,
+        numero_documento: d.numero_documento || a.numero_documento,
+        tipo_documento: d.numero_documento ? "tessera_sanitaria" : a.tipo_documento,
+      }));
+    } catch (err) {
+      setScanError("Errore durante la scansione: " + err.message);
+    } finally {
+      setScanLoading(false);
+      try { e.target.value = ""; } catch {}
+    }
+  };
+
+  const saveAnagrafica = async () => {
+    if (!richiesta) return;
+    try {
+      await sb.from("ksign_richiesta").update({
+        codice_fiscale: anagrafica.codice_fiscale || null,
+        data_nascita: anagrafica.data_nascita || null,
+        luogo_nascita: anagrafica.luogo_nascita || null,
+        indirizzo: anagrafica.indirizzo || null,
+        citta: anagrafica.citta || null,
+        cap: anagrafica.cap || null,
+        provincia: anagrafica.provincia || null,
+        occupazione: anagrafica.occupazione || null,
+        tipo_documento: anagrafica.tipo_documento || null,
+        numero_documento: anagrafica.numero_documento || null,
+        come_conosciuto: anagrafica.come_conosciuto || null,
+        preferenza_comunicazione: anagrafica.preferenza_comunicazione || null,
+      }).eq("id", richiesta.id);
+    } catch (err) {
+      console.warn("saveAnagrafica failed:", err);
     }
   };
 
@@ -123,7 +220,6 @@ export default function KsignFirma() {
   // ===== COMPLETE =====
   async function completeSignature() {
     try {
-      // 1. salva firme
       const sigInserts = [];
       richiesta.template_codici.forEach(tplCod => {
         const tpl = templates[tplCod];
@@ -146,7 +242,6 @@ export default function KsignFirma() {
       });
       if (sigInserts.length) await sb.from("ksign_firma").insert(sigInserts);
 
-      // 2. salva consensi (se liberatoria)
       if (isLib) {
         const tpl = templates["liberatoria_fitgo"];
         const consInserts = tpl?.contenuto?.consensi_gdpr?.map(c => ({
@@ -159,10 +254,8 @@ export default function KsignFirma() {
         if (consInserts.length) await sb.from("ksign_consenso").insert(consInserts);
       }
 
-      // 3. update stato
       await sb.from("ksign_richiesta").update({ stato: "signed", signed_at: new Date().toISOString() }).eq("id", richiesta.id);
 
-      // 4. audit
       await sb.from("ksign_audit_log").insert({
         richiesta_id: richiesta.id, evento: "signed",
         descrizione: "Firma completata dal cliente",
@@ -170,12 +263,10 @@ export default function KsignFirma() {
         user_agent: navigator.userAgent.substring(0, 200)
       });
 
-      // 5. id transazione
       const id = `KS-${String(richiesta.numero_progressivo).padStart(6, "0")}`;
       setTransId(id);
       setDone(true);
 
-      // 6. Notifica email admin (non blocca se fallisce)
       fetch("/api/firma-notifica", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -203,7 +294,6 @@ export default function KsignFirma() {
 
   return (
     <div style={{ minHeight: "100vh", background: K.slate100, fontFamily: "-apple-system, sans-serif", paddingBottom: 60 }}>
-      {/* HEADER */}
       <header style={{ background: K.black, color: "white", position: "sticky", top: 0, zIndex: 50 }}>
         <div style={{ maxWidth: 640, margin: "0 auto", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -229,14 +319,24 @@ export default function KsignFirma() {
         {done ? (
           <SuccessScreen fullName={fullName} transId={transId} richiesta={richiesta} />
         ) : step === 0 ? (
-          <IntroStep fullName={fullName} totalRequired={totalRequired} onNext={() => setStep(2)} />
+          <IntroStep fullName={fullName} totalRequired={totalRequired} onNext={() => setStep(1)} />
+        ) : step === 1 ? (
+          <AnagraficaStep
+            anagrafica={anagrafica}
+            setAnagrafica={setAnagrafica}
+            onScanCF={onScanCF}
+            scanLoading={scanLoading}
+            scanError={scanError}
+            onBack={() => setStep(0)}
+            onNext={async () => { await saveAnagrafica(); setStep(2); }}
+          />
         ) : step === 2 && isLib ? (
           <LiberatoriaStep
             certMedico={certMedico} setCertMedico={setCertMedico}
             libAccept={libAccept} setLibAccept={setLibAccept}
             consents={consents} setConsent={setConsent}
             signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs}
-            onBack={() => setStep(0)} onNext={() => setStep(isCon ? 3 : 4)}
+            onBack={() => setStep(1)} onNext={() => setStep(isCon ? 3 : 4)}
             canProceed={libDone}
             isLibOnly={isLibOnly}
           />
@@ -244,7 +344,7 @@ export default function KsignFirma() {
           <ContrattoStep
             richiesta={richiesta} templates={templates}
             signatures={signatures} confirmSig={confirmSig} clearSig={clearSig} padRefs={padRefs}
-            onBack={() => setStep(isLib ? 2 : 0)} onNext={() => setStep(4)}
+            onBack={() => setStep(isLib ? 2 : 1)} onNext={() => setStep(4)}
             canProceed={allDone}
           />
         ) : step === 4 ? (
@@ -278,11 +378,138 @@ function IntroStep({ fullName, totalRequired, onNext }) {
   );
 }
 
+function AnagraficaStep({ anagrafica, setAnagrafica, onScanCF, scanLoading, scanError, onBack, onNext }) {
+  const upd = (k, v) => setAnagrafica(a => ({ ...a, [k]: v }));
+  const cfValido = !anagrafica.codice_fiscale || /^[A-Z0-9]{16}$/i.test(anagrafica.codice_fiscale.trim());
+  const capValido = !anagrafica.cap || /^\d{5}$/.test(anagrafica.cap.trim());
+  const canProceed =
+    anagrafica.codice_fiscale.trim().length === 16 &&
+    cfValido &&
+    anagrafica.data_nascita &&
+    anagrafica.luogo_nascita.trim() &&
+    anagrafica.indirizzo.trim() &&
+    anagrafica.citta.trim() &&
+    capValido &&
+    anagrafica.numero_documento.trim();
+
+  const lblStyle = { fontSize: 11, color: K.slate500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 4, display: "block" };
+  const inpStyle = { width: "100%", padding: "10px 12px", fontSize: 14, border: `1px solid ${K.slate200}`, borderRadius: 8, outline: "none", boxSizing: "border-box", background: "white" };
+
+  return (
+    <div>
+      <Card>
+        <div style={{ fontSize: 11, color: K.amber500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Step 1 · Anagrafica</div>
+        <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>I tuoi dati</h2>
+        <p style={{ fontSize: 12, color: K.slate500, marginTop: 4 }}>Servono per compilare correttamente i documenti che firmerai (liberatoria e contratto).</p>
+      </Card>
+
+      <Card style={{ background: `linear-gradient(135deg, ${K.amber50}, #fef3c7)`, border: `1px solid ${K.amber500}55` }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: K.amber900, marginBottom: 4 }}>📷 Compila automaticamente</div>
+        <p style={{ fontSize: 12, color: K.amber700, marginBottom: 10 }}>Scatta una foto alla tua tessera sanitaria o carta d'identità: leggeremo automaticamente nome, cognome, codice fiscale, data e luogo di nascita.</p>
+        <label style={{ display: "block", padding: "12px 16px", background: K.black, color: "white", borderRadius: 10, textAlign: "center", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+          {scanLoading ? "Sto leggendo..." : "📷 Scansiona tessera / documento"}
+          <input type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onChange={onScanCF} disabled={scanLoading} style={{ display: "none" }} />
+        </label>
+        {scanError && <div style={{ fontSize: 12, color: K.red600, marginTop: 8 }}>{scanError}</div>}
+      </Card>
+
+      <Card>
+        <label style={lblStyle}>Codice Fiscale *</label>
+        <input type="text" value={anagrafica.codice_fiscale} onChange={e => upd("codice_fiscale", e.target.value.toUpperCase())} placeholder="RSSMRA80A01H501Z" maxLength={16} style={{ ...inpStyle, fontFamily: "monospace", letterSpacing: 1, borderColor: cfValido ? K.slate200 : "#fca5a5" }} />
+        {!cfValido && <div style={{ fontSize: 11, color: K.red600, marginTop: 4 }}>Codice fiscale non valido (16 caratteri)</div>}
+
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 12 }}>
+          <div>
+            <label style={lblStyle}>Data di nascita *</label>
+            <input type="date" value={anagrafica.data_nascita} onChange={e => upd("data_nascita", e.target.value)} style={inpStyle} />
+          </div>
+          <div>
+            <label style={lblStyle}>Luogo di nascita *</label>
+            <input type="text" value={anagrafica.luogo_nascita} onChange={e => upd("luogo_nascita", e.target.value)} placeholder="Padova" style={inpStyle} />
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: K.slate900 }}>Residenza</div>
+        <label style={lblStyle}>Indirizzo (via e civico) *</label>
+        <input type="text" value={anagrafica.indirizzo} onChange={e => upd("indirizzo", e.target.value)} placeholder="Via Roma 12" style={inpStyle} />
+
+        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr 1fr", gap: 10, marginTop: 12 }}>
+          <div>
+            <label style={lblStyle}>Città *</label>
+            <input type="text" value={anagrafica.citta} onChange={e => upd("citta", e.target.value)} placeholder="Padova" style={inpStyle} />
+          </div>
+          <div>
+            <label style={lblStyle}>CAP *</label>
+            <input type="text" value={anagrafica.cap} onChange={e => upd("cap", e.target.value.replace(/[^0-9]/g, ""))} placeholder="35100" maxLength={5} style={{ ...inpStyle, borderColor: capValido ? K.slate200 : "#fca5a5" }} />
+          </div>
+          <div>
+            <label style={lblStyle}>Prov.</label>
+            <input type="text" value={anagrafica.provincia} onChange={e => upd("provincia", e.target.value.toUpperCase())} placeholder="PD" maxLength={2} style={{ ...inpStyle, textAlign: "center", textTransform: "uppercase" }} />
+          </div>
+        </div>
+
+        <label style={{ ...lblStyle, marginTop: 12 }}>Occupazione</label>
+        <input type="text" value={anagrafica.occupazione} onChange={e => upd("occupazione", e.target.value)} placeholder="Impiegato/a, libero professionista..." style={inpStyle} />
+      </Card>
+
+      <Card>
+        <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10, color: K.slate900 }}>Documento di identità</div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+          <div>
+            <label style={lblStyle}>Tipo</label>
+            <select value={anagrafica.tipo_documento} onChange={e => upd("tipo_documento", e.target.value)} style={inpStyle}>
+              <option value="carta_identita">Carta d'identità</option>
+              <option value="patente">Patente</option>
+              <option value="passaporto">Passaporto</option>
+              <option value="tessera_sanitaria">Tessera sanitaria</option>
+            </select>
+          </div>
+          <div>
+            <label style={lblStyle}>Numero *</label>
+            <input type="text" value={anagrafica.numero_documento} onChange={e => upd("numero_documento", e.target.value.toUpperCase())} placeholder="CA12345AB" style={{ ...inpStyle, fontFamily: "monospace" }} />
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <label style={lblStyle}>Come ci hai conosciuto?</label>
+        <select value={anagrafica.come_conosciuto} onChange={e => upd("come_conosciuto", e.target.value)} style={inpStyle}>
+          <option value="">— Seleziona —</option>
+          <option value="insegna_passaggio">Insegna / passaggio</option>
+          <option value="internet">Internet / sito web</option>
+          <option value="pubblicita_tradizionale">Pubblicità tradizionale</option>
+          <option value="volantinaggio">Volantinaggio</option>
+          <option value="social_network">Social network</option>
+          <option value="amico">Amico</option>
+          <option value="altro">Altro</option>
+        </select>
+
+        <label style={{ ...lblStyle, marginTop: 12 }}>Preferenza comunicazione</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" onClick={() => upd("preferenza_comunicazione", "email")}
+            style={{ flex: 1, padding: 10, fontSize: 13, fontWeight: 600, border: `2px solid ${anagrafica.preferenza_comunicazione === "email" ? K.gold : K.slate200}`, background: anagrafica.preferenza_comunicazione === "email" ? K.amber50 : "white", color: K.slate900, borderRadius: 8, cursor: "pointer" }}>📧 Email</button>
+          <button type="button" onClick={() => upd("preferenza_comunicazione", "sms")}
+            style={{ flex: 1, padding: 10, fontSize: 13, fontWeight: 600, border: `2px solid ${anagrafica.preferenza_comunicazione === "sms" ? K.gold : K.slate200}`, background: anagrafica.preferenza_comunicazione === "sms" ? K.amber50 : "white", color: K.slate900, borderRadius: 8, cursor: "pointer" }}>💬 SMS</button>
+        </div>
+      </Card>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginTop: 16 }}>
+        <button onClick={onBack} style={btnSecondary()}>Indietro</button>
+        <button onClick={onNext} disabled={!canProceed} style={btnPrimary({ opacity: canProceed ? 1 : 0.4 })}>
+          Continua →
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function LiberatoriaStep({ certMedico, setCertMedico, libAccept, setLibAccept, consents, setConsent, signatures, confirmSig, clearSig, padRefs, onBack, onNext, canProceed, isLibOnly }) {
   return (
     <div>
       <Card>
-        <div style={{ fontSize: 11, color: K.amber500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Step 1 · Liberatoria</div>
+        <div style={{ fontSize: 11, color: K.amber500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Step 2 · Liberatoria</div>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>Dichiarazione di responsabilità</h2>
       </Card>
 
@@ -341,7 +568,7 @@ function ContrattoStep({ richiesta, templates, signatures, confirmSig, clearSig,
   return (
     <div>
       <Card>
-        <div style={{ fontSize: 11, color: K.amber500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Step 2 · Contratto</div>
+        <div style={{ fontSize: 11, color: K.amber500, fontWeight: 600, textTransform: "uppercase", letterSpacing: 1 }}>Step 3 · Contratto</div>
         <h2 style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>Condizioni generali</h2>
       </Card>
       <Card>
@@ -486,6 +713,7 @@ function Card({ children, style }) {
 function btnPrimary(extra = {}) {
   return { width: "100%", padding: 14, background: `linear-gradient(135deg, #fbbf24, ${K.gold}, #b8860b)`, color: "#0a0a0a", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, cursor: "pointer", boxShadow: "0 2px 8px rgba(212,168,67,.3)", ...extra };
 }
+
 function btnSecondary() {
   return { padding: 12, background: "white", border: `1px solid ${K.slate200}`, color: K.slate700, borderRadius: 12, fontSize: 14, fontWeight: 600, cursor: "pointer" };
 }
