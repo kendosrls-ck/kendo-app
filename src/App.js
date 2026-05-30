@@ -287,7 +287,47 @@ export default function App() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (user) {
-          const { data: prof } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+          let { data: prof } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+
+          // Auto-link cliente al primo accesso: se profilo esiste senza cliente_id, cerca cliente con stessa email
+          if (prof && !prof.cliente_id && user.email) {
+            try {
+              const { data: cli } = await supabase.from("clienti")
+                .select("id, user_id")
+                .ilike("email", user.email)
+                .limit(1).maybeSingle();
+              if (cli) {
+                // Aggancia bidirezionale
+                if (!cli.user_id) {
+                  await supabase.from("clienti").update({ user_id: user.id }).eq("id", cli.id);
+                }
+                await supabase.from("profiles").update({ cliente_id: cli.id }).eq("id", user.id);
+                prof = { ...prof, cliente_id: cli.id };
+              }
+            } catch(e) { console.warn("auto-link cliente fallito:", e); }
+          }
+
+          // Se non esiste un profilo per questo user (caso magic link), lo creo al volo
+          if (!prof) {
+            try {
+              const { data: cli } = await supabase.from("clienti")
+                .select("id, nome, user_id").ilike("email", user.email || "")
+                .limit(1).maybeSingle();
+              const insertPayload = {
+                id: user.id,
+                nome: cli?.nome || user.user_metadata?.nome || (user.email || "").split("@")[0],
+                is_admin: false,
+                piano: "basic",
+                cliente_id: cli?.id || null,
+              };
+              const { data: newProf } = await supabase.from("profiles").insert(insertPayload).select().maybeSingle();
+              prof = newProf;
+              if (cli && !cli.user_id) {
+                await supabase.from("clienti").update({ user_id: user.id }).eq("id", cli.id);
+              }
+            } catch(e) { console.warn("auto-create profile fallito:", e); }
+          }
+
           setRole(prof?.is_admin ? "admin" : "user");
           setProfile(prof);
           setCurrentUser(user);
