@@ -5003,11 +5003,34 @@ function FollowUp() {
   });
   const biaScaduta = attivi.filter(c => giorniDa(c.ultima_bia_data) > 30);
 
+  // 5° CATEGORIA: REATTIVAZIONE EX-CLIENTI
+  // Candidati: cancellati/fine percorso da 90+ giorni OPPURE standby da 60+ giorni
+  // OPPURE attivi senza appuntamenti da 90+ giorni
+  // ESCLUSI: già contattati per reattivazione negli ultimi 60 giorni
+  const reattivazione = clienti.filter(c => {
+    if (!c.email && !c.telefono) return false; // serve almeno un contatto
+    const ultimoRea = c.reattivazione_inviato_at ? giorniDa(c.reattivazione_inviato_at) : 999;
+    if (ultimoRea < 60) return false; // niente reinvii prima di 60 giorni
+    // Candidato A: cancellato/fine percorso da 90+ giorni
+    if ((c.status_crm === "CANCELLATO" || c.status_crm === "FINE PERCORSO") && c.updated_at && giorniDa(c.updated_at) >= 90) return true;
+    // Candidato B: stand-by da 60+ giorni
+    if (c.status_crm === "CLIENTE STAND BY" && c.updated_at && giorniDa(c.updated_at) >= 60) return true;
+    // Candidato C: attivo ma inattivo da 90+ giorni (nessun appuntamento recente)
+    if ((c.status_crm === "CLIENTE ATTIVO" || !c.status_crm) && c.ultimo_appt_data && giorniDa(c.ultimo_appt_data) >= 90) return true;
+    return false;
+  }).sort((a, b) => {
+    // I cancellati con valore_cliente alto prima (più ROI di riattivazione)
+    const va = parseFloat(a.valore_cliente) || 0;
+    const vb = parseFloat(b.valore_cliente) || 0;
+    return vb - va;
+  });
+
   const categorie = {
     regolamento: { lab: "📋 No regolamento", list: noRegolamento, color: K.gold },
     contratto:   { lab: "✍️ No contratto",   list: noContratto, color: K.danger },
     sedute:      { lab: "💪 ≤5 sedute",       list: seduteScadenza, color: K.gold },
     bia:         { lab: "📊 BIA da fare",     list: biaScaduta, color: K.info },
+    reattivazione: { lab: "💔 Da riattivare", list: reattivazione, color: "#9B8FFF" },
   };
   const cur = categorie[cat];
 
@@ -5106,6 +5129,78 @@ function FollowUp() {
               <>
                 <div style={{fontSize:12,color:K.muted,marginBottom:6}}>Ultima BIA: {c.ultima_bia_data ? `${gg} giorni fa` : "mai fatta"}</div>
                 {tel && <button onClick={() => inviaWA(c, "bia_invito", fb)} style={{...B("success",{width:"100%",padding:"8px",fontSize:12})}}>📊 Manda invito BIA</button>}
+              </>
+            }/>
+          );
+        }
+        if (cat === "reattivazione") {
+          const tel = cleanPhone(c.telefono);
+          const ggInattivo = c.ultimo_appt_data ? giorniDa(c.ultimo_appt_data) : (c.updated_at ? giorniDa(c.updated_at) : null);
+          const stato = c.status_crm || "ATTIVO";
+          const motivoStr =
+            stato === "CANCELLATO" ? `Cancellato da ${giorniDa(c.updated_at)} giorni` :
+            stato === "FINE PERCORSO" ? `Fine percorso da ${giorniDa(c.updated_at)} giorni` :
+            stato === "CLIENTE STAND BY" ? `Stand-by da ${giorniDa(c.updated_at)} giorni` :
+            ggInattivo ? `Nessun appuntamento da ${ggInattivo} giorni` : "Inattivo";
+          const valore = parseFloat(c.valore_cliente) || 0;
+
+          // Template messaggio in base allo stato
+          const fbCancellato = `Ciao ${c.nome||""}! 👋\n\nÈ passato un po' di tempo dall'ultima volta in centro... ci manchi! 💛\n\nVolevo personalmente proporti una cosa: vieni a fare 1 seduta gratuita di prova così ci raccontiamo come stai e vediamo come riprendere insieme il tuo percorso 💪\n\nFammi sapere quando ti va bene!\n\nUn caro saluto,\nChristian\nFit And Go Padova`;
+          const fbStandBy = `Ciao ${c.nome||""}! 😊\n\nNotavo che è da un po' che non vieni in centro. Tutto bene?\n\nSe vuoi riprendere ho pensato a un'offerta speciale per te: prima seduta gratis + sconto sul rinnovo del prossimo pacchetto 🎁\n\nFammi sapere se ti va, ne parliamo!\n\nChristian\nFit And Go Padova`;
+          const fbInattivo = `Ciao ${c.nome||""}! 👋\n\nÈ da un po' che non vieni a fare le tue sedute, volevo solo controllare che andasse tutto bene 💛\n\nSe vuoi prenotare la prossima seduta sono a disposizione, fammi sapere!\n\nChristian\nFit And Go Padova`;
+
+          const fb = stato === "CANCELLATO" || stato === "FINE PERCORSO" ? fbCancellato : stato === "CLIENTE STAND BY" ? fbStandBy : fbInattivo;
+
+          const segnaContattato = async () => {
+            const at = new Date().toISOString();
+            const tent = (c.reattivazione_tentativi || 0) + 1;
+            await supabase.from("clienti").update({
+              reattivazione_inviato_at: at,
+              reattivazione_tentativi: tent,
+              reattivazione_esito: "contattato",
+            }).eq("id", c.id);
+            setClienti(p => p.map(x => x.id === c.id ? { ...x, reattivazione_inviato_at: at, reattivazione_tentativi: tent, reattivazione_esito: "contattato" } : x));
+          };
+
+          const inviaEmailReatt = async () => {
+            if (!c.email) { alert("Email mancante"); return; }
+            try {
+              await fetch("/api/email-generica", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  to: c.email,
+                  subject: `${c.nome}, ci manchi! 💛`,
+                  bodyText: fb,
+                }),
+              });
+              segnaContattato();
+              alert(`✓ Email di reattivazione inviata a ${c.email}`);
+            } catch (e) {
+              alert("Errore invio: " + e.message);
+            }
+          };
+
+          return (
+            <Card key={c.id} c={c} azione={
+              <>
+                <div style={{display:"flex", gap:6, fontSize:11, marginBottom:8, flexWrap:"wrap"}}>
+                  <span style={{background:"#1a1308", color:"#fbbf24", padding:"2px 8px", borderRadius:4, fontWeight:600}}>{motivoStr}</span>
+                  {valore > 0 && <span style={{background:K.successBg, color:K.success, padding:"2px 8px", borderRadius:4, fontWeight:600}}>LTV €{Math.round(valore)}</span>}
+                  {c.reattivazione_tentativi > 0 && <span style={{background:"#7c2d12", color:"#fbbf24", padding:"2px 8px", borderRadius:4, fontWeight:600}}>🔁 {c.reattivazione_tentativi} tentativo{c.reattivazione_tentativi>1?"i":""}</span>}
+                </div>
+                <div style={{display:"flex", gap:6}}>
+                  {tel && <button onClick={async () => {
+                    await inviaWA({...c, telefono: tel}, "reattivazione", fb);
+                    segnaContattato();
+                  }} style={{...B("gold",{flex:2,padding:"8px",fontSize:12})}}>💬 WhatsApp riattiva</button>}
+                  {c.email && <button onClick={inviaEmailReatt} style={{...B("ghost",{flex:1,padding:"8px",fontSize:11})}}>✉ Email</button>}
+                </div>
+                <button onClick={async () => {
+                  const at = new Date().toISOString();
+                  await supabase.from("clienti").update({ reattivazione_esito: "no_risposta", reattivazione_inviato_at: at }).eq("id", c.id);
+                  setClienti(p => p.map(x => x.id === c.id ? { ...x, reattivazione_esito: "no_risposta", reattivazione_inviato_at: at } : x));
+                }} style={{...B("ghost",{width:"100%",padding:"6px",fontSize:11,marginTop:6,color:K.muted})}}>Salta / non risponde</button>
               </>
             }/>
           );
