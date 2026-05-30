@@ -141,7 +141,14 @@ export default function LeadAdmin({ navTarget }) {
   };
 
   const markWhatsappSent = async (id) => {
-    await updateStato(id, "contattato", { whatsapp_inviato: true, whatsapp_inviato_at: new Date().toISOString() });
+    const l = leads.find(x => x.id === id);
+    const counter = (l?.numero_contatti_whatsapp || 0) + 1;
+    await updateStato(id, "contattato", {
+      whatsapp_inviato: true,
+      whatsapp_inviato_at: new Date().toISOString(),
+      ultimo_contatto_at: new Date().toISOString(),
+      numero_contatti_whatsapp: counter,
+    });
   };
 
   const apriDettaglio = async (id) => {
@@ -358,7 +365,18 @@ export default function LeadAdmin({ navTarget }) {
             style={{...B("danger"),opacity:l.stato==="scartato"?0.5:1}}>🗑 Scarta</button>
         </div>
 
-        {l.whatsapp_inviato_at && <div style={{fontSize:11,color:K.muted,textAlign:"center",marginTop:14}}>
+        {/* Avvisi tracking: riinvii arrivati + contatti inviati */}
+        {(l.numero_riinvii > 0 || l.numero_contatti_whatsapp > 0) && (
+          <div style={{marginTop:14, padding:"10px 12px", background:"#1a1308", border:"1px solid #D4A84355", borderRadius:8, fontSize:12, color:"#fbbf24"}}>
+            {l.numero_riinvii > 0 && (
+              <div>🔁 Lead ricevuto <strong>{l.numero_riinvii + 1} volte</strong> (ultimo riinvio: {l.ultimo_riinvio_at ? fmtDateTime(l.ultimo_riinvio_at) : "—"})</div>
+            )}
+            {l.numero_contatti_whatsapp > 0 && (
+              <div style={{marginTop: l.numero_riinvii>0 ? 4 : 0}}>💬 Già contattato su WhatsApp <strong>{l.numero_contatti_whatsapp} {l.numero_contatti_whatsapp===1?"volta":"volte"}</strong> (ultimo: {l.ultimo_contatto_at ? fmtDateTime(l.ultimo_contatto_at) : (l.whatsapp_inviato_at ? fmtDateTime(l.whatsapp_inviato_at) : "—")})</div>
+            )}
+          </div>
+        )}
+        {l.whatsapp_inviato_at && !l.numero_contatti_whatsapp && <div style={{fontSize:11,color:K.muted,textAlign:"center",marginTop:14}}>
           ✓ WhatsApp inviato il {fmtDateTime(l.whatsapp_inviato_at)}
         </div>}
       </div>
@@ -447,8 +465,18 @@ export default function LeadAdmin({ navTarget }) {
                 <div style={{fontWeight:500,fontSize:14,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
                   {l.nome||""} {l.cognome||""}
                 </div>
-                <div style={{fontSize:11,color:K.muted,marginTop:2}}>
-                  {l.fonte || "—"} · {fmtDate(l.created_at)}
+                <div style={{fontSize:11,color:K.muted,marginTop:2,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+                  <span>{l.fonte || "—"} · {fmtDate(l.created_at)}</span>
+                  {l.numero_riinvii > 0 && (
+                    <span style={{background:"#7c2d12",color:"#fbbf24",padding:"1px 6px",borderRadius:4,fontSize:9,fontWeight:600}} title={`Stesso lead arrivato ${l.numero_riinvii+1} volte`}>
+                      🔁 x{l.numero_riinvii+1}
+                    </span>
+                  )}
+                  {l.numero_contatti_whatsapp > 0 && (
+                    <span style={{background:"#064e3b",color:"#34d399",padding:"1px 6px",borderRadius:4,fontSize:9,fontWeight:600}} title={`Già contattato ${l.numero_contatti_whatsapp} volte su WhatsApp`}>
+                      💬 {l.numero_contatti_whatsapp}
+                    </span>
+                  )}
                 </div>
               </div>
               <span style={Tag(sc.fg, sc.bg, sc.bd)}>{l.stato}</span>
@@ -458,9 +486,17 @@ export default function LeadAdmin({ navTarget }) {
               <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
                 {tel && (
                   <button
-                     onClick={async(e)=>{e.stopPropagation(); await apriWA(l); markWhatsappSent(l.id);}}
-                     style={{...B("success",{flex:1,padding:"7px 10px",fontSize:11,textAlign:"center",cursor:"pointer"}),minWidth:0}}>
-                    💬 WhatsApp
+                     onClick={async(e)=>{
+                       e.stopPropagation();
+                       if (l.numero_contatti_whatsapp > 0) {
+                         const conferma = window.confirm(`⚠ Hai già contattato ${l.nome||""} ${l.cognome||""} su WhatsApp ${l.numero_contatti_whatsapp} ${l.numero_contatti_whatsapp===1?"volta":"volte"}.\n\nUltimo contatto: ${l.ultimo_contatto_at ? new Date(l.ultimo_contatto_at).toLocaleString("it-IT") : "—"}\n\nVuoi contattarlo di nuovo?`);
+                         if (!conferma) return;
+                       }
+                       await apriWA(l);
+                       markWhatsappSent(l.id);
+                     }}
+                     style={{...B(l.numero_contatti_whatsapp>0?"ghost":"success",{flex:1,padding:"7px 10px",fontSize:11,textAlign:"center",cursor:"pointer"}),minWidth:0}}>
+                    💬 WhatsApp{l.numero_contatti_whatsapp>0?` (${l.numero_contatti_whatsapp})`:""}
                   </button>
                 )}
                 {(l.cellulare || l.telefono_normalizzato) && (

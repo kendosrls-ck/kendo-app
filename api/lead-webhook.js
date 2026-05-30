@@ -49,10 +49,12 @@ export default async function handler(req, res) {
 
     const sb = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
+    const emailNorm = email ? String(email).trim().toLowerCase() : null;
+
     const payload = {
       nome: String(nome).trim(),
       cognome: cognome ? String(cognome).trim() : null,
-      email: email ? String(email).trim() : null,
+      email: emailNorm,
       cellulare: tel,
       telefono_normalizzato: telNorm,
       fonte: fonte || "Gmail",
@@ -64,18 +66,45 @@ export default async function handler(req, res) {
       stato: "nuovo",
     };
 
-    // Insert con onConflict su email_id per evitare duplicati
-    let q = sb.from("leads").insert(payload).select().single();
+    // 1. Dedup esplicito su email_id (stesso messaggio Gmail già processato)
     if (email_id) {
-      q = sb.from("leads").upsert(payload, { onConflict: "email_id", ignoreDuplicates: true }).select().single();
+      const { data: dupEmail } = await sb.from("leads").select("id").eq("email_id", email_id).maybeSingle();
+      if (dupEmail) return res.status(200).json({ ok: true, duplicate: true, reason: "email_id", id: dupEmail.id });
     }
 
-    const { data, error } = await q;
-    if (error) {
-      // Se errore di duplicato → 200 con info (Apps Script non riprocessa)
-      if (error.code === "23505") {
-        return res.status(200).json({ ok: true, duplicate: true });
+    // 2. Dedup intelligente: stessa email o stesso telefono normalizzato negli ultimi 60 giorni
+    const sinceIso = new Date(Date.now() - 60 * 86400 * 1000).toISOString();
+    const orFilter = [];
+    if (emailNorm) orFilter.push(`email.eq.${emailNorm}`);
+    if (telNorm) orFilter.push(`telefono_normalizzato.eq.${telNorm}`);
+
+    if (orFilter.length) {
+      const { data: dups } = await sb
+        .from("leads")
+        .select("id, nome, cognome, numero_riinvii, created_at")
+        .or(orFilter.join(","))
+        .gte("created_at", sinceIso)
+        .order("created_at", { ascending: false })
+        .limit(1);
+
+      if (dups && dups.length > 0) {
+        const existing = dups[0];
+        // Aggiorna il lead esistente: incrementa contatore riinvii + aggiorna messaggio se presente
+        const patch = {
+          numero_riinvii: (existing.numero_riinvii || 0) + 1,
+          ultimo_riinvio_at: new Date().toISOString(),
+        };
+        // Se è arrivato un messaggio nuovo, lo aggiungiamo in coda al precedente
+        if (messaggio) patch.messaggio = messaggio;
+        await sb.from("leads").update(patch).eq("id", existing.id);
+        return res.status(200).json({ ok: true, duplicate: true, reason: "email_or_telefono", id: existing.id });
       }
+    }
+
+    // 3. Nessun duplicato → insert nuovo
+    const { data, error } = await sb.from("leads").insert(payload).select().single();
+    if (error) {
+      if (error.code === "23505") return res.status(200).json({ ok: true, duplicate: true });
       console.error("[lead-webhook] supabase error:", error);
       return res.status(500).json({ error: error.message });
     }
