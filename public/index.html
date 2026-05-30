@@ -13,7 +13,21 @@
     />
     <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
     <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <title>Kendo - Fitness &amp; Benessere</title>
+    <!-- PWA iOS: installabile come app nativa con icona homescreen -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Kendo" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" sizes="192x192" href="%PUBLIC_URL%/logo192.png" />
+    <link rel="apple-touch-icon" sizes="512x512" href="%PUBLIC_URL%/logo512.png" />
+    <!-- Open Graph / preview link -->
+    <meta property="og:title" content="Kendo · Fit And Go Padova" />
+    <meta property="og:description" content="La tua palestra digitale: prenota sedute, vedi i tuoi progressi, gestisci il tuo abbonamento." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="%PUBLIC_URL%/logo512.png" />
+    <meta property="og:locale" content="it_IT" />
+    <title>Kendo - Fit And Go Padova</title>
     <style>
       html, body { background:#080808 !important; color:#F5F5F5; margin:0; padding:0; }
       #root { background:#080808; min-height:100vh; }

@@ -1,9 +1,11 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { createClient } from "@supabase/supabase-js";
 import LeadAdmin from "./LeadAdmin";
 import Ksign from "./ksign/Ksign";
 import KsignFirma from "./ksign/KsignFirma";
 import Planner from "./Planner";
+import { PagamentiCliente } from "./Pagamenti";
+import Magazzino from "./Magazzino";
 import ImportMarketing from "./ImportMarketing";
 import {
   isBiometricSupported,
@@ -355,7 +357,7 @@ export default function App() {
   }
 
   const userNav=[{id:"home",icon:"○",label:"Home"},{id:"prenota",icon:"◷",label:"Prenota"},{id:"bia",icon:"◈",label:"BIA"},{id:"dieta",icon:"◉",label:"Dieta"},{id:"chat",icon:"◎",label:"AI"}];
-  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"planner",icon:"◷",label:"Planner"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"firme",icon:"✎",label:"Firme"},{id:"chat",icon:"◎",label:"AI"},{id:"settings",icon:"⚙",label:"Impostazioni"}];
+  const adminNav=[{id:"home",icon:"◈",label:"Dashboard"},{id:"lead",icon:"◆",label:"Lead"},{id:"clienti",icon:"○",label:"Clienti"},{id:"planner",icon:"◷",label:"Planner"},{id:"magazzino",icon:"▦",label:"Magazzino"},{id:"followup",icon:"◉",label:"Follow-up"},{id:"firme",icon:"✎",label:"Firme"},{id:"chat",icon:"◎",label:"AI"},{id:"settings",icon:"⚙",label:"Impostazioni"}];
   const nav = role==="admin"?adminNav:userNav;
 
   const handleLogin = (r, prof, user) => {
@@ -462,6 +464,7 @@ export default function App() {
                 {tab==="lead"    && <LeadAdmin navTarget={navTarget}/>}
                 {tab==="clienti" && <Clienti navTarget={navTarget}/>}
                 {tab==="planner" && <Planner/>}
+                {tab==="magazzino" && <Magazzino/>}
                 {tab==="agenda"  && <Agenda/>}
                 {tab==="followup"&& <FollowUp/>}
                 {tab==="firme"   && <Ksign navTarget={navTarget}/>}
@@ -2889,6 +2892,8 @@ function Clienti({ navTarget }) {
             {waPhone&&<WhatsAppMenu cliente={c} onSend={(text)=>apriWa(waPhone,text)} textBia={textBia} text5Sedute={text5Sedute} textRinnovo={textRinnovo} textRegolamento={textRegolamento}/>}
           </div>
         </div>
+        <PagamentiCliente cliente={c} onChange={() => load()} />
+        <ClienteReferral cliente={c} tuttiClienti={clienti} onChange={() => load()} />
         <ClienteStats cliente={c} />
         <ClienteDocumenti cliente={c} onSaved={(patch)=>setClienti(p=>p.map(x=>x.id===c.id?{...x,...patch}:x))} />
         <ClienteTimeline cliente={c} />
@@ -2902,6 +2907,131 @@ function Clienti({ navTarget }) {
 }
 
 /* ─── LISTA CLIENTI: tabella desktop + card mobile + filtri rapidi ─── */
+function ClienteReferral({ cliente, tuttiClienti, onChange }) {
+  const [search, setSearch] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+
+  // Chi ha portato questo cliente
+  const presentatore = (tuttiClienti || []).find(c => c.id === cliente.referred_by);
+
+  // Clienti portati da questo cliente
+  const portati = (tuttiClienti || []).filter(c => c.referred_by === cliente.id);
+
+  const filtPres = useMemo(() => {
+    if (!search.trim() || search.length < 2) return [];
+    const s = search.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+    return (tuttiClienti || []).filter(c => c.id !== cliente.id &&
+      (`${(c.nome || "").toLowerCase()} ${(c.cognome || "").toLowerCase()}`).normalize("NFD").replace(/[̀-ͯ]/g, "").includes(s)
+    ).slice(0, 6);
+  }, [search, tuttiClienti, cliente.id]);
+
+  const assegnaPres = async (presId) => {
+    setSaving(true);
+    await supabase.from("clienti").update({ referred_by: presId }).eq("id", cliente.id);
+    setSaving(false);
+    setEditing(false);
+    setSearch("");
+    if (onChange) onChange();
+  };
+
+  const rimuoviPres = async () => {
+    if (!window.confirm("Rimuovere il collegamento referral?")) return;
+    await supabase.from("clienti").update({ referred_by: null, referral_premio_assegnato: false }).eq("id", cliente.id);
+    if (onChange) onChange();
+  };
+
+  const segnaPremio = async () => {
+    const desc = window.prompt("Descrizione premio (es. 'Seduta omaggio EMS', 'Sconto 30€ rinnovo'):", cliente.referral_premio_descrizione || "Seduta omaggio");
+    if (desc === null) return;
+    await supabase.from("clienti").update({
+      referral_premio_assegnato: true,
+      referral_premio_descrizione: desc,
+    }).eq("id", cliente.id);
+    if (onChange) onChange();
+  };
+
+  return (
+    <div style={C()}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>🤝 PROGRAMMA REFERRAL</div>
+        {portati.length > 0 && <span style={{ fontSize: 11, color: K.success, fontWeight: 600 }}>Ha portato {portati.length} amic{portati.length === 1 ? "o" : "i"}</span>}
+      </div>
+
+      {/* CHI HA PORTATO QUESTO CLIENTE */}
+      <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 10, color: K.muted, marginBottom: 6, letterSpacing: 1 }}>PORTATO DA</div>
+        {presentatore ? (
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: 10, background: K.successBg, border: `1px solid ${K.success}55`, borderRadius: 8 }}>
+            <div style={{ fontSize: 13, color: K.white, fontWeight: 600 }}>{presentatore.nome} {presentatore.cognome}</div>
+            <div style={{ display: "flex", gap: 6 }}>
+              {!presentatore.referral_premio_assegnato && (
+                <button onClick={() => {
+                  // Apre il modal di assegnazione premio sul PRESENTATORE
+                  if (window.confirm(`Assegnare un premio referral a ${presentatore.nome} ${presentatore.cognome}?`)) {
+                    const desc = window.prompt("Descrizione premio:", "Seduta omaggio EMS");
+                    if (desc !== null) {
+                      supabase.from("clienti").update({
+                        referral_premio_assegnato: true,
+                        referral_premio_descrizione: desc,
+                      }).eq("id", presentatore.id).then(() => { if (onChange) onChange(); });
+                    }
+                  }
+                }} style={B("gold", { padding: "5px 10px", fontSize: 10 })}>🎁 Premia</button>
+              )}
+              <button onClick={rimuoviPres} style={B("ghost", { padding: "5px 10px", fontSize: 10 })}>✕</button>
+            </div>
+          </div>
+        ) : editing ? (
+          <div>
+            <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Cerca chi l'ha portato..."
+              style={{ width: "100%", padding: 8, fontSize: 12, background: "#0e0e0e", border: `1px solid ${K.border}`, borderRadius: 6, color: K.white, outline: "none", boxSizing: "border-box" }}/>
+            {filtPres.length > 0 && (
+              <div style={{ background: "#0e0e0e", border: `1px solid ${K.border}`, borderRadius: 6, marginTop: 4, maxHeight: 140, overflowY: "auto" }}>
+                {filtPres.map(p => (
+                  <div key={p.id} onClick={() => assegnaPres(p.id)} style={{ padding: "6px 10px", borderBottom: `1px solid ${K.border}`, cursor: "pointer", fontSize: 12, color: K.white }}>
+                    {p.cognome} {p.nome}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={() => { setEditing(false); setSearch(""); }} style={B("ghost", { width: "100%", padding: 6, marginTop: 6, fontSize: 11 })}>Annulla</button>
+          </div>
+        ) : (
+          <button onClick={() => setEditing(true)} style={B("ghost", { width: "100%", padding: 8, fontSize: 12 })}>
+            + Imposta chi l'ha portato
+          </button>
+        )}
+      </div>
+
+      {/* PREMIO DI QUESTO CLIENTE */}
+      {(portati.length > 0 || cliente.referral_premio_assegnato) && (
+        <div style={{ marginBottom: 10, padding: 10, background: cliente.referral_premio_assegnato ? K.goldBg : "#0e0e0e", border: `1px solid ${cliente.referral_premio_assegnato ? K.goldBorder : K.border}`, borderRadius: 8 }}>
+          <div style={{ fontSize: 10, color: K.muted, marginBottom: 4, letterSpacing: 1 }}>PREMIO REFERRAL</div>
+          {cliente.referral_premio_assegnato ? (
+            <div style={{ fontSize: 13, color: K.gold, fontWeight: 600 }}>✓ {cliente.referral_premio_descrizione || "Premio assegnato"}</div>
+          ) : (
+            <button onClick={segnaPremio} style={B("gold", { width: "100%", padding: 6, fontSize: 12 })}>🎁 Assegna premio per referral</button>
+          )}
+        </div>
+      )}
+
+      {/* CLIENTI PORTATI */}
+      {portati.length > 0 && (
+        <div>
+          <div style={{ fontSize: 10, color: K.muted, marginBottom: 6, letterSpacing: 1 }}>HA PORTATO</div>
+          {portati.map(p => (
+            <div key={p.id} style={{ padding: "6px 10px", background: "#0e0e0e", border: `1px solid ${K.border}`, borderRadius: 6, marginBottom: 4, fontSize: 12, display: "flex", justifyContent: "space-between" }}>
+              <span style={{ color: K.white }}>{p.nome} {p.cognome}</span>
+              <span style={{ color: K.muted, fontSize: 11 }}>{p.status_crm === "CLIENTE ATTIVO" ? "✓ attivo" : p.status_crm || "—"}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ClienteAreaLogin({ cliente }) {
   const [sending, setSending] = useState(false);
   const [msg, setMsg] = useState(null);
@@ -3212,6 +3342,7 @@ function Settings() {
           ["bulk","Import documenti"],
           ["export","Esporta dati"],
           ["reminder","Reminder auto"],
+          ["staff","Staff"],
           ["account","Account"],
         ].map(([k,lab])=>{
           const active = tab===k;
@@ -3233,6 +3364,7 @@ function Settings() {
       {tab==="export" && <ExportData/>}
       {tab==="account" && <AccountSettings/>}
       {tab==="reminder" && <ReminderSettings/>}
+      {tab==="staff" && <StaffSettings/>}
     </div>
   );
 }
@@ -3358,6 +3490,155 @@ function ReminderSettings() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+function StaffSettings() {
+  const [staff, setStaff] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modalNuovo, setModalNuovo] = useState(false);
+  const [meId, setMeId] = useState(null);
+
+  const carica = async () => {
+    setLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    setMeId(user?.id);
+    const { data } = await supabase.from("profiles").select("*").in("ruolo", ["admin", "trainer", "reception"]).order("created_at", { ascending: false });
+    setStaff(data || []);
+    setLoading(false);
+  };
+  useEffect(() => { carica(); }, []);
+
+  const cambiaRuolo = async (id, nuovoRuolo) => {
+    if (id === meId && nuovoRuolo !== "admin") {
+      if (!window.confirm("⚠ Stai cambiando il TUO ruolo. Potresti perdere l'accesso ad alcune funzioni. Procedere?")) return;
+    }
+    await supabase.from("profiles").update({ ruolo: nuovoRuolo, is_admin: nuovoRuolo === "admin" }).eq("id", id);
+    carica();
+  };
+
+  const toggleAttivo = async (id, nuovoStato) => {
+    if (id === meId && !nuovoStato) { alert("Non puoi disattivare il tuo account"); return; }
+    await supabase.from("profiles").update({ attivo: nuovoStato }).eq("id", id);
+    carica();
+  };
+
+  const ruoliLab = { admin: "👑 Admin", trainer: "💪 Trainer", reception: "📋 Reception" };
+  const ruoliCol = { admin: K.gold, trainer: K.success, reception: K.info };
+
+  return (
+    <div>
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:8}}>👥 Gestione Staff</div>
+        <div style={{fontSize:12, color:K.mutedLight, lineHeight:1.7, marginBottom:12}}>
+          Invita collaboratori col loro ruolo. Riceveranno un'email con link di accesso senza password.
+        </div>
+        <ul style={{fontSize:11, color:K.mutedLight, lineHeight:1.8, paddingLeft:20, margin:"0 0 14px 0"}}>
+          <li><strong style={{color:K.gold}}>👑 Admin</strong>: accesso completo (gestione finanze, staff, impostazioni)</li>
+          <li><strong style={{color:K.success}}>💪 Trainer</strong>: clienti, planner, BIA — niente finanze né staff</li>
+          <li><strong style={{color:K.info}}>📋 Reception</strong>: planner, prenotazioni, pagamenti — niente clienti privacy</li>
+        </ul>
+        <button onClick={() => setModalNuovo(true)} style={B("gold",{width:"100%", padding:"12px"})}>+ Invita nuovo membro</button>
+      </div>
+
+      {loading ? <Spinner/> : staff.length === 0 ? (
+        <div style={C({padding:24, textAlign:"center", color:K.muted, fontSize:13})}>Nessun membro dello staff. Aggiungi il primo!</div>
+      ) : (
+        <div style={C({padding:0, overflow:"hidden"})}>
+          {staff.map((s, i) => (
+            <div key={s.id} style={{padding:14, borderBottom: i < staff.length-1 ? `1px solid ${K.border}` : "none", display:"flex", alignItems:"center", gap:12}}>
+              <div style={{width:38, height:38, borderRadius:"50%", background: ruoliCol[s.ruolo] + "33", border:`1px solid ${ruoliCol[s.ruolo]}`, display:"flex", alignItems:"center", justifyContent:"center", color:ruoliCol[s.ruolo], fontWeight:700, fontSize:14, flexShrink:0}}>
+                {(s.nome || "?")[0].toUpperCase()}
+              </div>
+              <div style={{flex:1, minWidth:0}}>
+                <div style={{fontSize:14, fontWeight:600, color: s.attivo ? K.white : K.muted, display:"flex", alignItems:"center", gap:6}}>
+                  {s.nome || "—"}
+                  {s.id === meId && <span style={{fontSize:9, background:K.goldBg, color:K.gold, padding:"1px 6px", borderRadius:8, fontWeight:600}}>TU</span>}
+                  {!s.attivo && <span style={{fontSize:9, background:K.dangerBg, color:K.danger, padding:"1px 6px", borderRadius:8, fontWeight:600}}>DISATTIVO</span>}
+                </div>
+                <div style={{fontSize:11, color:K.muted}}>{ruoliLab[s.ruolo] || s.ruolo}</div>
+              </div>
+              <select value={s.ruolo} onChange={e => cambiaRuolo(s.id, e.target.value)} style={{background:"#0e0e0e", border:`1px solid ${K.border}`, color:K.white, borderRadius:6, padding:"5px 8px", fontSize:11, fontFamily:"inherit"}}>
+                <option value="admin">Admin</option>
+                <option value="trainer">Trainer</option>
+                <option value="reception">Reception</option>
+              </select>
+              <button onClick={() => toggleAttivo(s.id, !s.attivo)} style={B("ghost", {padding:"5px 10px", fontSize:10})}>
+                {s.attivo ? "⏸" : "▶"}
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {modalNuovo && <ModalInvitoStaff meId={meId} onClose={() => setModalNuovo(false)} onSaved={() => { setModalNuovo(false); carica(); }} />}
+    </div>
+  );
+}
+
+function ModalInvitoStaff({ meId, onClose, onSaved }) {
+  const [f, setF] = useState({ email: "", nome: "", ruolo: "trainer" });
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const invia = async () => {
+    setMsg(null);
+    if (!f.email || !f.email.includes("@")) { setMsg({tipo:"err", txt:"Email non valida"}); return; }
+    setSaving(true);
+    try {
+      const r = await fetch("/api/staff-invito", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({...f, invitato_da: meId}),
+      });
+      const j = await r.json();
+      if (j.ok) {
+        setMsg({tipo:"ok", txt:`✓ Invito inviato a ${f.email}`});
+        setTimeout(onSaved, 1500);
+      } else {
+        setMsg({tipo:"err", txt: j.error || "Errore"});
+      }
+    } catch(e) {
+      setMsg({tipo:"err", txt: e.message});
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div onClick={onClose} style={{position:"fixed", inset:0, background:"rgba(0,0,0,.7)", zIndex:100, display:"flex", alignItems:"center", justifyContent:"center", padding:16}}>
+      <div onClick={e => e.stopPropagation()} style={{background:K.card, border:`1px solid ${K.border}`, borderRadius:14, padding:20, maxWidth:420, width:"100%"}}>
+        <div style={{display:"flex", justifyContent:"space-between", marginBottom:14}}>
+          <h3 style={{margin:0, fontSize:16, color:K.gold}}>Invita membro staff</h3>
+          <button onClick={onClose} style={{background:"none", border:"none", color:K.muted, fontSize:22, cursor:"pointer"}}>×</button>
+        </div>
+
+        <div style={{fontSize:11, color:K.muted, marginBottom:4}}>NOME</div>
+        <input value={f.nome} onChange={e => setF({...f, nome: e.target.value})} placeholder="Mario Rossi"
+          style={{width:"100%", padding:"10px 12px", fontSize:13, background:"#0e0e0e", border:`1px solid ${K.border}`, borderRadius:8, color:K.white, boxSizing:"border-box", fontFamily:"inherit", marginBottom:10}}/>
+
+        <div style={{fontSize:11, color:K.muted, marginBottom:4}}>EMAIL *</div>
+        <input type="email" value={f.email} onChange={e => setF({...f, email: e.target.value})} placeholder="mario@kendo.it"
+          style={{width:"100%", padding:"10px 12px", fontSize:13, background:"#0e0e0e", border:`1px solid ${K.border}`, borderRadius:8, color:K.white, boxSizing:"border-box", fontFamily:"inherit", marginBottom:10}}/>
+
+        <div style={{fontSize:11, color:K.muted, marginBottom:4}}>RUOLO</div>
+        <select value={f.ruolo} onChange={e => setF({...f, ruolo: e.target.value})}
+          style={{width:"100%", padding:"10px 12px", fontSize:13, background:"#0e0e0e", border:`1px solid ${K.border}`, borderRadius:8, color:K.white, boxSizing:"border-box", fontFamily:"inherit"}}>
+          <option value="trainer">💪 Trainer</option>
+          <option value="reception">📋 Reception</option>
+          <option value="admin">👑 Admin (controllo totale)</option>
+        </select>
+
+        {msg && <div style={{marginTop:10, fontSize:12, color: msg.tipo==="ok"?K.success:K.danger}}>{msg.txt}</div>}
+
+        <div style={{display:"flex", gap:8, marginTop:16}}>
+          <button onClick={onClose} style={B("ghost",{flex:1, padding:"10px"})}>Annulla</button>
+          <button onClick={invia} disabled={saving} style={B("gold",{flex:2, padding:"10px", opacity:saving?0.5:1})}>
+            {saving ? "Invio..." : "📧 Invia invito"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

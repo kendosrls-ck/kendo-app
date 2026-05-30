@@ -1,7 +1,7 @@
 {
   "short_name": "Kendo",
-  "name": "Kendo - Fitness & Benessere",
-  "description": "Gestionale Kendo per centri fitness EMS e Vacufit",
+  "name": "Kendo · Fit And Go Padova",
+  "description": "Gestionale Kendo per Fit And Go: clienti, prenotazioni, finanze, magazzino",
   "icons": [
     {
       "src": "favicon.ico",
@@ -28,5 +28,29 @@
   "theme_color": "#080808",
   "background_color": "#080808",
   "lang": "it-IT",
-  "categories": ["business", "productivity", "health"]
+  "dir": "ltr",
+  "categories": ["business", "productivity", "health", "fitness"],
+  "shortcuts": [
+    {
+      "name": "Planner",
+      "short_name": "Planner",
+      "description": "Apri la planner appuntamenti",
+      "url": "/?tab=planner",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Lead",
+      "short_name": "Lead",
+      "description": "Apri la gestione lead",
+      "url": "/?tab=lead",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Magazzino",
+      "short_name": "Magazzino",
+      "description": "Apri magazzino prodotti",
+      "url": "/?tab=magazzino",
+      "icons": [{ "src": "logo192.png", "sizes": "192x192" }]
+    }
+  ]
 }
