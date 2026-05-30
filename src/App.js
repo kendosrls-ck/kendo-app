@@ -764,164 +764,445 @@ function AdminRegScreen({onBack, onDone}) {
 
 /* ─── HOME UTENTE ─── */
 function HomeUser({piano, profile, chk, setChk}) {
-  const [pren,setPren]=useState([]);
-  const [cliente,setCliente]=useState(null);
-  const p=PIANI.find(x=>x.id===piano)||PIANI[0];
+  const [appsProx, setAppsProx] = useState([]);
+  const [cliente, setCliente] = useState(null);
+  const [biaLast, setBiaLast] = useState(null);
+  const p = PIANI.find(x => x.id === piano) || PIANI[0];
 
-  useEffect(()=>{
-    if(!profile?.id)return;
-    const oggi=new Date().toISOString().split("T")[0];
-    supabase.from("prenotazioni").select("*")
-      .eq("user_id",profile.id).eq("stato","confermata").gte("data",oggi)
-      .order("data").order("ora").limit(1)
-      .then(({data})=>setPren(data||[]));
-    supabase.from("clienti").select("*").eq("user_id",profile.id).maybeSingle()
-      .then(({data,error})=>{if(!error&&data)setCliente(data);})
-      .catch(()=>{});
-  },[profile]);
+  useEffect(() => {
+    if (!profile?.id) return;
+    const oggi = new Date().toISOString().split("T")[0];
+    (async () => {
+      const { data: cli } = await supabase.from("clienti").select("*").eq("user_id", profile.id).maybeSingle();
+      setCliente(cli || null);
+      if (cli?.id) {
+        // Prossimi appuntamenti dalla NUOVA tabella appuntamento
+        const { data: apps } = await supabase
+          .from("appuntamento")
+          .select("*, risorsa:risorsa_id(nome)")
+          .eq("cliente_id", cli.id)
+          .neq("stato", "cancellato")
+          .gte("data", oggi)
+          .order("data").order("ora_inizio")
+          .limit(3);
+        setAppsProx(apps || []);
+        // Ultima BIA
+        const { data: b } = await supabase
+          .from("bia").select("*").eq("user_id", profile.id)
+          .order("created_at", { ascending: false }).limit(1).maybeSingle();
+        setBiaLast(b || null);
+      }
+    })();
+  }, [profile]);
 
-  if(!profile)return <Spinner/>;
+  if (!profile) return <Spinner/>;
 
-  const seduteTot   = cliente?.sedute_total ?? profile?.sedute_total ?? 0;
+  const seduteTot = cliente?.sedute_total ?? profile?.sedute_total ?? 0;
   const seduteUsate = cliente?.sedute_usate ?? profile?.sedute_usate ?? 0;
-  const res         = Math.max(0, seduteTot - seduteUsate);
-  const pacchetto   = cliente?.pacchetto ?? profile?.pacchetto ?? "—";
-  const fmtD        = (d)=>d?new Date(d).toLocaleDateString("it-IT"):"—";
-  const prox=pren[0];
+  const res = Math.max(0, seduteTot - seduteUsate);
+  const pacchetto = cliente?.pacchetto ?? profile?.pacchetto ?? "—";
+  const fmtD = (d) => d ? new Date(d).toLocaleDateString("it-IT") : "—";
+  const prox = appsProx[0];
+
+  // Scadenza certificato medico imminente
+  const certScadenza = cliente?.scadenza_certificato_medico ? new Date(cliente.scadenza_certificato_medico) : null;
+  const giorniCert = certScadenza ? Math.floor((certScadenza - new Date()) / 86400000) : null;
+
   return (
     <div>
-      {cliente&&<div style={C({background:K.successBg,border:`1px solid ${K.successBorder}`,marginBottom:10})}>
-        <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>SCHEDA COLLEGATA</div>
-        <div style={{fontSize:13,color:K.success,fontWeight:500}}>✓ Ciao {cliente.nome}! La tua scheda Fit & Go è collegata.</div>
-        {cliente.scadenza_iscrizione&&<div style={{fontSize:11,color:K.mutedMid,marginTop:4}}>Iscrizione scade il {fmtD(cliente.scadenza_iscrizione)}</div>}
-      </div>}
-      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}}>
-        <StatBox label="Sedute" value={res} sub="rimaste" color={res<=3?K.danger:K.gold}/>
-        <StatBox label="Piano" value={p?.name||"—"} sub="attivo" color={p?.color}/>
-        <StatBox label="Pacchetto" value={pacchetto} sub="in corso" color="#9B8FFF"/>
-        {cliente?.ultima_bia_data
-          ? <StatBox label="Ultima BIA" value={fmtD(cliente.ultima_bia_data)} sub="rilevazione" color={K.info}/>
-          : <StatBox label="Cancellazioni" value={profile?.cancellazioni||0} sub="questo mese" color={profile?.cancellazioni>=3?K.danger:K.mutedMid}/>
-        }
+      {cliente && (
+        <div style={C({background: K.successBg, border:`1px solid ${K.successBorder}`, marginBottom:10})}>
+          <div style={{fontSize:11, color:K.muted, marginBottom:4, letterSpacing:1}}>SCHEDA COLLEGATA</div>
+          <div style={{fontSize:13, color:K.success, fontWeight:500}}>✓ Ciao {cliente.nome}! La tua scheda Fit & Go è collegata.</div>
+          {cliente.scadenza_iscrizione && <div style={{fontSize:11, color:K.mutedMid, marginTop:4}}>Iscrizione scade il {fmtD(cliente.scadenza_iscrizione)}</div>}
+        </div>
+      )}
+
+      {/* Alert certificato medico in scadenza */}
+      {giorniCert !== null && giorniCert <= 30 && giorniCert >= 0 && (
+        <div style={C({background:"#7c2d1233", border:`1px solid ${giorniCert<=7?K.danger:"#f59e0b"}`, marginBottom:10})}>
+          <div style={{fontSize:13, color: giorniCert<=7?K.danger:"#fbbf24", fontWeight:600}}>
+            ⚠ Certificato medico {giorniCert === 0 ? "scade oggi" : `scade tra ${giorniCert} ${giorniCert===1?"giorno":"giorni"}`}
+          </div>
+          <div style={{fontSize:11, color:K.mutedMid, marginTop:4}}>Rinnovalo per continuare ad allenarti</div>
+        </div>
+      )}
+      {giorniCert !== null && giorniCert < 0 && (
+        <div style={C({background:"#7f1d1d44", border:`1px solid ${K.danger}`, marginBottom:10})}>
+          <div style={{fontSize:13, color:K.danger, fontWeight:600}}>⚠ Certificato medico SCADUTO</div>
+          <div style={{fontSize:11, color:K.mutedMid, marginTop:4}}>Devi rinnovarlo prima di prenotare nuove sedute</div>
+        </div>
+      )}
+
+      {/* STAT CARDS */}
+      <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8, marginBottom:12}}>
+        <StatBox label="Sedute" value={res} sub={`su ${seduteTot}`} color={res<=3?K.danger:K.gold}/>
+        <StatBox label="Pacchetto" value={pacchetto !== "—" ? (pacchetto.length > 12 ? pacchetto.slice(0,10)+"…" : pacchetto) : "—"} sub="attivo" color="#9B8FFF"/>
+        {biaLast && (
+          <StatBox label="Ultima BIA" value={fmtD(biaLast.created_at)} sub={`BMI ${biaLast.bmi||"—"}`} color={K.info}/>
+        )}
+        <StatBox label="Prossime" value={appsProx.length} sub="prenotazioni" color={K.gold}/>
       </div>
-      {prox&&<div style={C({border:`1px solid ${K.goldBorder}`,background:K.goldBg,marginBottom:10})}>
-        <div style={{fontSize:11,color:K.muted,marginBottom:4,letterSpacing:1}}>PROSSIMA SESSIONE</div>
-        <div style={{fontWeight:600,fontSize:16,color:K.gold}}>{prox?.tipo||"—"} — {prox?.ora||"—"}</div>
-        <div style={{fontSize:12,color:K.mutedMid,marginTop:3}}>{prox?.data?fmtDate(prox.data):"—"} · 30 min</div>
-      </div>}
+
+      {/* PROSSIMA SESSIONE */}
+      {prox && (
+        <div style={C({border:`1px solid ${K.goldBorder}`, background:K.goldBg, marginBottom:10})}>
+          <div style={{fontSize:11, color:K.muted, marginBottom:4, letterSpacing:1}}>PROSSIMA SESSIONE</div>
+          <div style={{fontWeight:700, fontSize:18, color:K.gold}}>
+            {prox.risorsa?.nome || prox.tipo_seduta || "—"} · {prox.ora_inizio?.slice(0,5)}
+          </div>
+          <div style={{fontSize:12, color:K.mutedMid, marginTop:3}}>
+            {fmtDate(prox.data)} · fino alle {prox.ora_fine?.slice(0,5)}
+          </div>
+        </div>
+      )}
+
+      {/* APPUNTAMENTI ULTERIORI */}
+      {appsProx.length > 1 && (
+        <div style={C()}>
+          <div style={{fontWeight:600, fontSize:12, marginBottom:8, letterSpacing:0.5, color:K.muted}}>ALTRE PRENOTAZIONI</div>
+          {appsProx.slice(1).map(a => (
+            <div key={a.id} style={{display:"flex", justifyContent:"space-between", padding:"8px 0", borderTop:`1px solid ${K.border}`, fontSize:12}}>
+              <span style={{color:K.white, fontWeight:500}}>{a.risorsa?.nome || a.tipo_seduta} · {a.ora_inizio?.slice(0,5)}</span>
+              <span style={{color:K.mutedLight}}>{fmtDate(a.data)}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* CHECK-IN */}
       <div style={C()}>
-        <div style={{fontWeight:600,fontSize:13,marginBottom:12,letterSpacing:0.5}}>CHECK-IN OGGI</div>
-        {[{k:"diet",label:"Ho seguito la dieta"},{k:"gym",label:"Ho fatto attività fisica"}].map(c=>(
-          <div key={c.k} onClick={()=>setChk(p=>({...p,[c.k]:!p[c.k]}))} style={{display:"flex",alignItems:"center",gap:12,padding:"10px 0",borderBottom:`1px solid ${K.border}`,cursor:"pointer"}}>
-            <div style={{width:22,height:22,borderRadius:6,background:chk[c.k]?K.gold:"transparent",border:`1px solid ${chk[c.k]?K.gold:K.borderMid}`,display:"flex",alignItems:"center",justifyContent:"center",color:"#080808",fontWeight:700,fontSize:12,flexShrink:0}}>{chk[c.k]&&"✓"}</div>
-            <span style={{fontSize:13,color:chk[c.k]?K.gold:K.mutedLight,textDecoration:chk[c.k]?"line-through":"none"}}>{c.label}</span>
+        <div style={{fontWeight:600, fontSize:13, marginBottom:12, letterSpacing:0.5}}>CHECK-IN OGGI</div>
+        {[{k:"diet", label:"Ho seguito la dieta"}, {k:"gym", label:"Ho fatto attività fisica"}].map(c => (
+          <div key={c.k} onClick={()=>setChk(p=>({...p, [c.k]: !p[c.k]}))} style={{display:"flex", alignItems:"center", gap:12, padding:"10px 0", borderBottom:`1px solid ${K.border}`, cursor:"pointer"}}>
+            <div style={{width:22, height:22, borderRadius:6, background: chk[c.k]?K.gold:"transparent", border:`1px solid ${chk[c.k]?K.gold:K.borderMid}`, display:"flex", alignItems:"center", justifyContent:"center", color:"#080808", fontWeight:700, fontSize:12, flexShrink:0}}>{chk[c.k] && "✓"}</div>
+            <span style={{fontSize:13, color: chk[c.k]?K.gold:K.mutedLight, textDecoration: chk[c.k]?"line-through":"none"}}>{c.label}</span>
           </div>
         ))}
-        <div style={{fontSize:11,color:K.muted,marginTop:10}}>{chk.diet&&chk.gym?"🏆 Ottimo lavoro oggi!":"Spunta le attività completate."}</div>
+        <div style={{fontSize:11, color:K.muted, marginTop:10}}>{chk.diet && chk.gym ? "🏆 Ottimo lavoro oggi!" : "Spunta le attività completate."}</div>
       </div>
     </div>
   );
 }
 
-/* ─── PRENOTA ─── */
-function Prenota({piano, userId, profile, setProfile}) {
-  const days=getNext14();
-  const [day,setDay]=useState(days[0]);
-  const [tipo,setTipo]=useState("EMS");
-  const [done,setDone]=useState(null);
-  const [pren,setPren]=useState([]);
-  const [loading,setLoading]=useState(true);
-  const slots=getDaySlots(day);
+/* ─── PRENOTA · Cliente self-service (usa tabella appuntamento + risorse) ─── */
+function Prenota({ piano, userId, profile, setProfile }) {
+  const [risorse, setRisorse] = useState([]);
+  const [orari, setOrari] = useState([]);
+  const [tipoSel, setTipoSel] = useState("ems");       // chiave logica del tipo selezionato
+  const [day, setDay] = useState(new Date().toISOString().split("T")[0]);
+  const [appsAll, setAppsAll] = useState([]);          // tutti gli app del giorno (per slot occupati)
+  const [appsMine, setAppsMine] = useState([]);        // i miei (per regole + lista)
+  const [cliente, setCliente] = useState(null);
+  const [done, setDone] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [errore, setErrore] = useState("");
+  const [saving, setSaving] = useState(false);
 
-  const loadPren = useCallback(async()=>{
-    if(!userId)return;
-    const {data}=await supabase.from("prenotazioni").select("*").eq("stato","confermata");
-    setPren(data||[]);setLoading(false);
-  },[userId]);
+  // Carica risorse, orari, dati cliente
+  useEffect(() => {
+    if (!userId) return;
+    (async () => {
+      const [{ data: r }, { data: o }, { data: c }] = await Promise.all([
+        supabase.from("risorsa").select("*").eq("attiva", true).order("ordine"),
+        supabase.from("risorsa_orario").select("*"),
+        supabase.from("clienti").select("*").eq("user_id", userId).maybeSingle(),
+      ]);
+      setRisorse(r || []);
+      setOrari(o || []);
+      setCliente(c || null);
+      setLoading(false);
+    })();
+  }, [userId]);
 
-  useEffect(()=>{loadPren();},[loadPren]);
+  // Carica appuntamenti del giorno + i miei (per regole)
+  const loadApps = useCallback(async () => {
+    if (!cliente?.id) return;
+    const oggi = new Date().toISOString().split("T")[0];
+    const [{ data: tutti }, { data: miei }] = await Promise.all([
+      supabase.from("appuntamento").select("*").eq("data", day).neq("stato", "cancellato"),
+      supabase.from("appuntamento").select("*").eq("cliente_id", cliente.id).neq("stato", "cancellato").gte("data", oggi).order("data").order("ora_inizio"),
+    ]);
+    setAppsAll(tutti || []);
+    setAppsMine(miei || []);
+  }, [day, cliente]);
 
-  const busy=(pren||[]).filter(p=>p?.data===day&&p?.tipo===tipo).map(p=>p?.ora).filter(Boolean);
-  const mine=(pren||[]).filter(p=>p?.user_id===userId).sort((a,b)=>(a?.data||"").localeCompare(b?.data||"")||(a?.ora||"").localeCompare(b?.ora||""));
+  useEffect(() => { loadApps(); }, [loadApps]);
 
-  const prenota=async(ora)=>{
-    const {data,error}=await supabase.from("prenotazioni").insert({user_id:userId,data:day,ora,tipo,stato:"confermata"}).select().single();
-    if(!error){setPren(p=>[...p,data]);setDone(data);}
-  };
+  // Risorse filtrate per tipo selezionato (es. "ems" → solo EMS, "vacufit" → entrambi Vacufit)
+  const risorseDelTipo = useMemo(() =>
+    risorse.filter(r => r.tipo === tipoSel || (tipoSel === "vacufit" && r.tipo === "vacufit")),
+  [risorse, tipoSel]);
 
-  const cancella=async(id)=>{
-    const oggi=new Date().toISOString().split("T")[0];
-    const mese=oggi.slice(0,7);
-    const cancMese=(pren||[]).filter(x=>x?.user_id===userId&&(x?.data||"").startsWith(mese)&&x?.stato==="cancellata").length;
-    await supabase.from("prenotazioni").update({stato:"cancellata"}).eq("id",id);
-    if(cancMese+1>=3){
-      const newUsate=Math.min((profile?.sedute_usate||0)+1, profile?.sedute_total||10);
-      const newCanc=(profile?.cancellazioni||0)+1;
-      await supabase.from("profiles").update({sedute_usate:newUsate,cancellazioni:newCanc}).eq("id",userId);
-      setProfile(p=>({...p,sedute_usate:newUsate,cancellazioni:newCanc}));
-      alert("Hai cancellato 3 appuntamenti questo mese. Ti è stata scalata 1 seduta.");
+  // Genera elenco giorni prossimi 14
+  const days = useMemo(() => {
+    const out = [];
+    const now = new Date();
+    for (let i = 0; i < 14; i++) {
+      const d = new Date(now);
+      d.setDate(now.getDate() + i);
+      out.push(d.toISOString().split("T")[0]);
     }
-    loadPren();
+    return out;
+  }, []);
+
+  const giornoSet = useMemo(() => {
+    const d = new Date(day + "T00:00:00");
+    return ((d.getDay() + 6) % 7) + 1; // 1=lun..7=dom
+  }, [day]);
+
+  // Slot disponibili per il tipo selezionato in quel giorno
+  // Aggrega gli slot di tutte le risorse del tipo, mostrandoli come "slot generici"
+  // Ogni slot è { ora: "HH:MM", risorse_libere: [risorsa_id, ...] }
+  const slotsDisponibili = useMemo(() => {
+    if (!risorseDelTipo.length) return [];
+    // Per ogni risorsa del tipo, prendiamo i range orari del giorno
+    const slotMap = new Map(); // ora → [risorsa_id]
+    for (const r of risorseDelTipo) {
+      const ranges = orari.filter(o => o.risorsa_id === r.id && o.giorno_settimana === giornoSet);
+      for (const range of ranges) {
+        const inizio = toMin(range.ora_inizio);
+        const fine = toMin(range.ora_fine);
+        for (let m = inizio; m < fine; m += 30) {
+          // Verifica che la risorsa NON sia già occupata in quello slot
+          const occupato = appsAll.some(a =>
+            a.risorsa_id === r.id &&
+            toMin(a.ora_inizio) <= m && toMin(a.ora_fine) > m
+          );
+          if (occupato) continue;
+          const k = fromMin(m);
+          if (!slotMap.has(k)) slotMap.set(k, []);
+          slotMap.get(k).push(r.id);
+        }
+      }
+    }
+    return Array.from(slotMap.entries())
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([ora, risorse_libere]) => ({ ora, risorse_libere }));
+  }, [risorseDelTipo, orari, giornoSet, appsAll]);
+
+  // Sedute residue
+  const seduteRes = Math.max(0, (cliente?.sedute_total || 0) - (cliente?.sedute_usate || 0));
+
+  // Regole contratto Fit & Go
+  const verificaRegole = (oraInizio) => {
+    if (!cliente) return "Profilo cliente non trovato. Contatta il centro.";
+    if (seduteRes <= 0 && (cliente.pacchetto && !findPackage(cliente.pacchetto)?.open)) {
+      return "Hai esaurito le sedute del tuo pacchetto. Contatta il centro per rinnovare.";
+    }
+    // Certificato medico in corso
+    if (cliente.scadenza_certificato_medico && new Date(cliente.scadenza_certificato_medico) < new Date()) {
+      return "⚠ Il tuo certificato medico è scaduto. Rinnovalo prima di prenotare.";
+    }
+    if (tipoSel === "ems") {
+      // Max 2 EMS / settimana (Lun-Dom)
+      const lunSett = new Date(day + "T00:00:00");
+      lunSett.setDate(lunSett.getDate() - ((lunSett.getDay() + 6) % 7));
+      const lunIso = lunSett.toISOString().split("T")[0];
+      const domIso = new Date(new Date(lunIso).getTime() + 6 * 86400000).toISOString().split("T")[0];
+      const emsSett = appsMine.filter(a =>
+        a.tipo_seduta === "EMS" && a.data >= lunIso && a.data <= domIso
+      );
+      if (emsSett.length >= 2) return "Hai già 2 sedute EMS questa settimana. Massimo consentito dal contratto.";
+      // ≥4 giorni tra una EMS e l'altra
+      const ultimaEms = appsMine.filter(a => a.tipo_seduta === "EMS").map(a => a.data).sort().pop();
+      if (ultimaEms) {
+        const diff = Math.abs((new Date(day) - new Date(ultimaEms)) / 86400000);
+        if (diff < 4) return `Devono passare almeno 4 giorni tra una EMS e l'altra. Ultima: ${new Date(ultimaEms).toLocaleDateString("it-IT")}.`;
+      }
+    }
+    return null;
   };
 
-  if(loading)return <Spinner/>;
+  const prenota = async (slot) => {
+    setErrore("");
+    const motivo = verificaRegole(slot.ora);
+    if (motivo) { setErrore(motivo); return; }
+    setSaving(true);
+    try {
+      // Sceglie la prima risorsa libera per quello slot
+      const risorsaId = slot.risorse_libere[0];
+      const risorsa = risorse.find(r => r.id === risorsaId);
+      const durata = risorsa?.durata_default_min || 30;
+      const oraFine = fromMin(toMin(slot.ora) + durata);
+      const tipoSeduta = risorsa?.tipo === "ems" ? "EMS" : risorsa?.tipo === "vacufit" ? "VACUFIT" : risorsa?.tipo === "nutrizionista" ? "NUTRIZIONE" : "ALTRO";
 
-  if(done) return (
-    <div style={{textAlign:"center",padding:"4rem 1.5rem"}}>
-      <div style={{width:64,height:64,borderRadius:"50%",background:K.successBg,border:`1px solid ${K.success}`,display:"flex",alignItems:"center",justifyContent:"center",fontSize:24,margin:"0 auto 20px"}}>✓</div>
-      <div style={{fontWeight:600,fontSize:18,color:K.gold,marginBottom:8}}>Prenotazione confermata</div>
-      <div style={{fontSize:14,color:K.mutedMid,marginBottom:4}}>{done.tipo} · {fmtDate(done.data)}</div>
-      <div style={{fontSize:22,fontWeight:600,marginBottom:28,color:K.white}}>{done.ora}</div>
-      <button onClick={()=>setDone(null)} style={{...B("gold"),width:"100%",padding:13}}>Torna alle prenotazioni</button>
+      const payload = {
+        cliente_id: cliente.id,
+        cliente_nome: cliente.nome,
+        cliente_cognome: cliente.cognome,
+        cliente_email: cliente.email,
+        cliente_telefono: cliente.telefono,
+        risorsa_id: risorsaId,
+        data: day,
+        ora_inizio: slot.ora,
+        ora_fine: oraFine,
+        tipo_seduta: tipoSeduta,
+        stato: "confermato",
+        note: "Prenotazione self-service",
+      };
+
+      const { data: ins, error } = await supabase.from("appuntamento").insert(payload).select().maybeSingle();
+      if (error) throw error;
+
+      // Invia email conferma (non blocca)
+      fetch("/api/prenotazione-conferma", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ appuntamento_id: ins.id }),
+      }).catch(e => console.warn("conferma email fallita:", e));
+
+      setDone({ ...ins, risorsa_nome: risorsa?.nome, ora: slot.ora, oraFine });
+      loadApps();
+    } catch (e) {
+      setErrore("Errore prenotazione: " + e.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancella = async (id) => {
+    const a = appsMine.find(x => x.id === id);
+    if (!a) return;
+    // Regola contratto: disdetta entro 24h prima
+    const dataApp = new Date(a.data + "T" + (a.ora_inizio || "00:00"));
+    const oreManca = (dataApp - new Date()) / (1000 * 60 * 60);
+    if (oreManca < 24) {
+      if (!window.confirm(`⚠ Mancano meno di 24 ore alla sessione.\n\nSecondo il contratto, la seduta verrà comunque scalata dal pacchetto.\n\nVuoi procedere con la cancellazione?`)) return;
+    } else {
+      if (!window.confirm("Cancellare questo appuntamento?")) return;
+    }
+    await supabase.from("appuntamento").update({ stato: "cancellato", updated_at: new Date().toISOString() }).eq("id", id);
+    loadApps();
+  };
+
+  if (loading) return <Spinner/>;
+
+  if (!cliente) return (
+    <div style={C({padding:"24px", textAlign:"center"})}>
+      <div style={{fontSize:14, color:K.danger, fontWeight:600, marginBottom:8}}>Profilo cliente non collegato</div>
+      <div style={{fontSize:12, color:K.muted}}>Contatta il centro per attivare l'area cliente.</div>
     </div>
   );
 
+  if (done) return (
+    <div style={{textAlign:"center", padding:"4rem 1.5rem"}}>
+      <div style={{width:72, height:72, borderRadius:"50%", background:K.successBg, border:`2px solid ${K.success}`, display:"flex", alignItems:"center", justifyContent:"center", fontSize:32, margin:"0 auto 20px"}}>✓</div>
+      <div style={{fontWeight:700, fontSize:20, color:K.gold, marginBottom:8}}>Prenotazione confermata!</div>
+      <div style={{fontSize:14, color:K.mutedMid, marginBottom:4}}>{done.risorsa_nome} · {fmtDate(done.data)}</div>
+      <div style={{fontSize:26, fontWeight:700, marginBottom:18, color:K.white}}>{done.ora} - {done.oraFine}</div>
+      <div style={{fontSize:11, color:K.muted, marginBottom:28}}>📧 Riceverai una conferma via email con allegato calendario</div>
+      <button onClick={()=>setDone(null)} style={{...B("gold"), width:"100%", padding:13}}>Nuova prenotazione</button>
+    </div>
+  );
+
+  const tipi = [
+    { k:"ems", lab:"⚡ EMS", count: risorse.filter(r => r.tipo === "ems").length },
+    { k:"vacufit", lab:"◎ Vacufit", count: risorse.filter(r => r.tipo === "vacufit").length },
+    { k:"nutrizionista", lab:"🥗 Nutri", count: risorse.filter(r => r.tipo === "nutrizionista").length },
+  ].filter(t => t.count > 0);
+
   return (
     <div>
-      <div style={{fontWeight:600,fontSize:16,marginBottom:2}}>Prenota sessione</div>
-      <div style={{fontSize:12,color:K.muted,marginBottom:14}}>30 min · Lun–Ven 7:00–20:30 · Sab 7:00–13:30</div>
-      <div style={{display:"flex",gap:8,marginBottom:14}}>
-        {["EMS","Vacufit"].map(t=>(
-          <button key={t} onClick={()=>setTipo(t)} style={{...B(tipo===t?"gold":"ghost",{flex:1,fontSize:13})}}>
-            {t==="EMS"?"⚡ EMS":"◎ Vacufit"}
+      <div style={{fontWeight:600, fontSize:16, marginBottom:2}}>Prenota sessione</div>
+      <div style={{fontSize:12, color:K.muted, marginBottom:14}}>
+        Sedute residue: <strong style={{color:seduteRes<=3?K.danger:K.gold}}>{seduteRes}/{cliente.sedute_total||0}</strong> · Pacchetto: {cliente.pacchetto||"—"}
+      </div>
+
+      {/* TIPO SEDUTA */}
+      <div style={{display:"flex", gap:8, marginBottom:14}}>
+        {tipi.map(t => (
+          <button key={t.k} onClick={()=>setTipoSel(t.k)}
+            style={{...B(tipoSel===t.k?"gold":"ghost", {flex:1, fontSize:13})}}>
+            {t.lab}
           </button>
         ))}
       </div>
-      <div style={{display:"flex",gap:6,overflowX:"auto",paddingBottom:8,marginBottom:14}}>
-        {days.map(d=>{const dd=new Date(d);const isSel=d===day;return(
-          <div key={d} onClick={()=>setDay(d)} style={{flexShrink:0,background:isSel?K.goldBg:"#111",border:`1px solid ${isSel?K.gold:K.border}`,borderRadius:10,padding:"8px 10px",cursor:"pointer",textAlign:"center",minWidth:48}}>
-            <div style={{fontSize:10,color:isSel?K.gold:K.muted}}>{dd.toLocaleDateString("it-IT",{weekday:"short"}).slice(0,3).toUpperCase()}</div>
-            <div style={{fontSize:16,fontWeight:600,color:isSel?K.gold:K.white}}>{dd.getDate()}</div>
-          </div>
-        );})}
+
+      {/* GIORNI */}
+      <div style={{display:"flex", gap:6, overflowX:"auto", paddingBottom:8, marginBottom:14}}>
+        {days.map(d => {
+          const dd = new Date(d);
+          const isSel = d === day;
+          return (
+            <div key={d} onClick={()=>setDay(d)} style={{
+              flexShrink:0,
+              background: isSel?K.goldBg:"#111",
+              border:`1px solid ${isSel?K.gold:K.border}`,
+              borderRadius:10, padding:"8px 10px", cursor:"pointer", textAlign:"center", minWidth:48
+            }}>
+              <div style={{fontSize:10, color: isSel?K.gold:K.muted}}>{dd.toLocaleDateString("it-IT", {weekday:"short"}).slice(0,3).toUpperCase()}</div>
+              <div style={{fontSize:16, fontWeight:600, color: isSel?K.gold:K.white}}>{dd.getDate()}</div>
+            </div>
+          );
+        })}
       </div>
-      <div style={{fontSize:12,color:K.muted,marginBottom:10,letterSpacing:0.5}}>{fmtDate(day).toUpperCase()} — {tipo}</div>
-      {slots.length===0?<div style={C({textAlign:"center",padding:"2rem",color:K.muted})}>Chiuso</div>:(
-        <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:6,marginBottom:20}}>
-          {slots.map(ora=>{const occ=busy.includes(ora);const mio=pren.some(p=>p.user_id===userId&&p.data===day&&p.ora===ora&&p.tipo===tipo&&p.stato==="confermata");return(
-            <button key={ora} disabled={occ&&!mio} onClick={()=>!occ&&!mio&&prenota(ora)}
-              style={{background:mio?K.successBg:occ?"#0e0e0e":K.goldBg,border:`1px solid ${mio?K.success:occ?K.border:K.goldBorder}`,borderRadius:8,padding:"9px 4px",cursor:occ&&!mio?"not-allowed":"pointer",fontSize:12,fontWeight:500,color:mio?K.success:occ?K.muted:K.gold,opacity:occ&&!mio?0.4:1}}>
-              {ora}
-            </button>
-          );})}
+
+      <div style={{fontSize:12, color:K.muted, marginBottom:10, letterSpacing:0.5}}>
+        {fmtDate(day).toUpperCase()} · {tipi.find(t=>t.k===tipoSel)?.lab}
+      </div>
+
+      {/* SLOT */}
+      {slotsDisponibili.length === 0 ? (
+        <div style={C({textAlign:"center", padding:"2rem", color:K.muted})}>
+          Nessuno slot disponibile per questo giorno.
+        </div>
+      ) : (
+        <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:6, marginBottom:20}}>
+          {slotsDisponibili.map(slot => {
+            const mio = appsMine.some(a => a.data === day && a.ora_inizio?.slice(0,5) === slot.ora);
+            return (
+              <button key={slot.ora}
+                onClick={() => !mio && !saving && prenota(slot)}
+                disabled={mio || saving}
+                style={{
+                  background: mio?K.successBg:K.goldBg,
+                  border:`1px solid ${mio?K.success:K.goldBorder}`,
+                  borderRadius:8, padding:"10px 4px", cursor: mio?"default":"pointer",
+                  fontSize:12, fontWeight:600,
+                  color: mio?K.success:K.gold,
+                  opacity: mio?0.7:1,
+                }}>
+                {mio ? "✓ " : ""}{slot.ora}
+              </button>
+            );
+          })}
         </div>
       )}
-      {mine.length>0&&(
+
+      {errore && (
+        <div style={{padding:"12px 14px", background:"#7f1d1d22", border:`1px solid ${K.danger}55`, borderRadius:8, color:K.danger, fontSize:12, marginBottom:14}}>
+          ⚠ {errore}
+        </div>
+      )}
+
+      {/* LE MIE PRENOTAZIONI */}
+      {appsMine.length > 0 && (
         <>
-          <div style={{fontWeight:600,fontSize:13,marginBottom:10,letterSpacing:0.5}}>LE MIE PRENOTAZIONI</div>
-          {mine.map(p=>(
-            <div key={p.id} style={C()}>
-              <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
-                <div><div style={{fontWeight:500,color:K.gold}}>{p.tipo} · {p.ora}</div><div style={{fontSize:12,color:K.muted,marginTop:2}}>{fmtDate(p.data)}</div></div>
-                <button onClick={()=>cancella(p.id)} style={B("danger",{padding:"6px 12px",fontSize:12})}>Cancella</button>
+          <div style={{fontWeight:600, fontSize:13, marginBottom:10, letterSpacing:0.5}}>LE MIE PRENOTAZIONI</div>
+          {appsMine.map(a => {
+            const r = risorse.find(x => x.id === a.risorsa_id);
+            return (
+              <div key={a.id} style={C()}>
+                <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+                  <div>
+                    <div style={{fontWeight:600, color:K.gold}}>{r?.nome || a.tipo_seduta} · {a.ora_inizio?.slice(0,5)}-{a.ora_fine?.slice(0,5)}</div>
+                    <div style={{fontSize:12, color:K.muted, marginTop:2}}>{fmtDate(a.data)}</div>
+                  </div>
+                  <button onClick={()=>cancella(a.id)} style={B("danger", {padding:"6px 12px", fontSize:12})}>Cancella</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </>
       )}
     </div>
   );
 }
+
+// helpers minuti
+function toMin(hms) { const [h, m] = (hms || "00:00").split(":").map(Number); return h * 60 + m; }
+function fromMin(min) { const h = Math.floor(min / 60), m = min % 60; return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`; }
 
 /* ─── BIA ─── */
 function BIATab({userId}) {
