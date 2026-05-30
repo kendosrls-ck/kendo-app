@@ -3211,6 +3211,7 @@ function Settings() {
           ["importclienti","Import clienti"],
           ["bulk","Import documenti"],
           ["export","Esporta dati"],
+          ["reminder","Reminder auto"],
           ["account","Account"],
         ].map(([k,lab])=>{
           const active = tab===k;
@@ -3231,6 +3232,132 @@ function Settings() {
       {tab==="bulk" && <BulkDocumenti/>}
       {tab==="export" && <ExportData/>}
       {tab==="account" && <AccountSettings/>}
+      {tab==="reminder" && <ReminderSettings/>}
+    </div>
+  );
+}
+
+function ReminderSettings() {
+  const [stats, setStats] = useState({ compleanno: 0, certificato: 0, sedute: 0, rinnovo: 0 });
+  const [log, setLog] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const carica = async () => {
+    setLoading(true);
+    // Statistiche ultimi 30 giorni
+    const since = new Date(Date.now() - 30 * 86400000).toISOString();
+    const { data: logs } = await supabase.from("reminder_log").select("*").gte("created_at", since).order("created_at", { ascending: false });
+    const s = { compleanno: 0, certificato: 0, sedute: 0, rinnovo: 0 };
+    (logs || []).forEach(l => { if (l.tipo in s) s[l.tipo]++; });
+    setStats(s);
+    setLog(logs || []);
+    setLoading(false);
+  };
+
+  useEffect(() => { carica(); }, []);
+
+  const eseguiManuale = async () => {
+    if (!window.confirm("Eseguire ora il controllo reminder?\n\nVerranno inviate email per:\n• Compleanni di oggi\n• Certificati medici in scadenza (30/14/7/1 gg)\n• Sedute residue ≤3\n• Rinnovi a 30gg dalla scadenza\n\nIl sistema evita doppi invii automaticamente.")) return;
+    setRunning(true);
+    setMsg(null);
+    try {
+      // L'endpoint richiede secret in produzione. In dev funziona senza.
+      const r = await fetch("/api/cron-reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-cron-secret": "manuale-da-admin" },
+      });
+      const j = await r.json();
+      if (j.ok) {
+        const totale = (j.sent?.compleanno||0) + (j.sent?.certificato||0) + (j.sent?.sedute||0) + (j.sent?.rinnovo||0);
+        setMsg({ tipo: "ok", txt: `✓ Eseguito. Inviati ${totale} reminder: ${j.sent?.compleanno||0} compleanni, ${j.sent?.certificato||0} certificati, ${j.sent?.sedute||0} sedute, ${j.sent?.rinnovo||0} rinnovi.` });
+        carica();
+      } else {
+        setMsg({ tipo: "err", txt: "Errore: " + (j.error || "sconosciuto") });
+      }
+    } catch (e) {
+      setMsg({ tipo: "err", txt: "Errore di rete: " + e.message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const tipiLabel = {
+    compleanno: { lab: "🎂 Compleanni", color: "#D4A843" },
+    certificato: { lab: "⚕ Certificati", color: "#f59e0b" },
+    sedute: { lab: "📦 Sedute basse", color: "#3a7bd5" },
+    rinnovo: { lab: "📅 Rinnovi", color: "#10b981" },
+  };
+
+  return (
+    <div>
+      {/* DESCRIZIONE */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:8}}>🤖 Reminder automatici</div>
+        <div style={{fontSize:12, color:K.mutedLight, lineHeight:1.7}}>
+          Ogni mattina alle <strong>8:00</strong> il sistema controlla automaticamente i clienti e invia email per:
+        </div>
+        <ul style={{fontSize:12, color:K.mutedLight, lineHeight:1.9, marginTop:8, paddingLeft:20}}>
+          <li><strong>🎂 Compleanni</strong>: auguri + sconto a chi compie gli anni oggi</li>
+          <li><strong>⚕ Certificato medico</strong>: avviso a 30, 14, 7 e 1 giorno dalla scadenza</li>
+          <li><strong>📦 Sedute basse</strong>: avviso quando rimangono ≤3 sedute (max 1 ogni 14 giorni)</li>
+          <li><strong>📅 Rinnovo abbonamento</strong>: avviso 30 giorni prima della scadenza</li>
+        </ul>
+        <div style={{fontSize:11, color:K.muted, marginTop:10, fontStyle:"italic"}}>
+          Il sistema evita doppi invii: ogni reminder è inviato una sola volta per cliente nel periodo opportuno.
+        </div>
+      </div>
+
+      {/* STATISTICHE ULTIMI 30 GG */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:12}}>📊 Inviati negli ultimi 30 giorni</div>
+        {loading ? <div style={{fontSize:12, color:K.muted, textAlign:"center"}}>Caricamento...</div> : (
+          <div style={{display:"grid", gridTemplateColumns:"1fr 1fr", gap:8}}>
+            {Object.entries(stats).map(([k, v]) => (
+              <div key={k} style={{padding:"12px 14px", background:"#0e0e0e", borderRadius:8, border:`1px solid ${K.border}`}}>
+                <div style={{fontSize:11, color:K.muted, marginBottom:4}}>{tipiLabel[k]?.lab || k}</div>
+                <div style={{fontSize:22, fontWeight:700, color: tipiLabel[k]?.color || K.white}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* TEST MANUALE */}
+      <div style={C({padding:18, marginBottom:14})}>
+        <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:8}}>🧪 Test manuale</div>
+        <div style={{fontSize:12, color:K.mutedLight, marginBottom:12, lineHeight:1.6}}>
+          Fai partire ora il controllo reminder, senza aspettare le 8:00 di domani. Utile per testare se tutto funziona.
+        </div>
+        <button onClick={eseguiManuale} disabled={running} style={{...B("gold", {width:"100%", padding:"12px", opacity:running?0.5:1})}}>
+          {running ? "Esecuzione in corso..." : "▶ Esegui ora i reminder"}
+        </button>
+        {msg && <div style={{marginTop:10, fontSize:12, color: msg.tipo === "ok" ? K.success : K.danger}}>{msg.txt}</div>}
+      </div>
+
+      {/* STORICO ULTIMI 20 */}
+      {log.length > 0 && (
+        <div style={C({padding:18})}>
+          <div style={{fontSize:13, fontWeight:600, color:K.gold, marginBottom:12}}>📋 Storico ultimi invii</div>
+          <div style={{maxHeight:300, overflowY:"auto"}}>
+            {log.slice(0, 20).map(l => (
+              <div key={l.id} style={{padding:"8px 0", borderBottom:`1px solid ${K.border}`, fontSize:12, display:"flex", justifyContent:"space-between", alignItems:"center", gap:10}}>
+                <div style={{flex:1, minWidth:0}}>
+                  <div style={{color:K.white, fontWeight:500}}>{tipiLabel[l.tipo]?.lab || l.tipo}</div>
+                  <div style={{color:K.muted, fontSize:11, overflow:"hidden", textOverflow:"ellipsis"}}>{l.destinatario}</div>
+                </div>
+                <div style={{textAlign:"right"}}>
+                  <div style={{color: l.esito === "ok" ? K.success : K.danger, fontSize:11, fontWeight:600}}>
+                    {l.esito === "ok" ? "✓" : "✗"} {l.esito}
+                  </div>
+                  <div style={{color:K.muted, fontSize:10, marginTop:2}}>{new Date(l.created_at).toLocaleDateString("it-IT", {day:"2-digit",month:"2-digit"})} {new Date(l.created_at).toLocaleTimeString("it-IT", {hour:"2-digit",minute:"2-digit"})}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

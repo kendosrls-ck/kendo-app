@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>K-Sign · Firma digitale per la tua attività</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+  .gold-gradient { background: linear-gradient(135deg, #fbbf24 0%, #d4a017 50%, #b8860b 100%); }
+  .gold-text { background: linear-gradient(135deg, #fbbf24 0%, #d4a017 100%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  .hero-bg { background: radial-gradient(ellipse at top, #1a1505 0%, #0a0a0a 60%); }
+  .modal { transition: opacity .2s; }
+</style>
+</head>
+<body class="bg-zinc-950 text-white">
+
+<!-- NAV -->
+<nav class="sticky top-0 z-40 bg-zinc-950/90 backdrop-blur border-b border-zinc-800">
+  <div class="max-w-6xl mx-auto px-5 py-4 flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <div class="w-9 h-9 gold-gradient text-black rounded-lg flex items-center justify-center font-bold text-lg">K</div>
+      <span class="font-bold text-lg">K-Sign</span>
+    </div>
+    <div class="flex items-center gap-3">
+      <button onclick="openAuth('login')" class="text-sm text-zinc-300 hover:text-white px-3 py-2">Accedi</button>
+      <button onclick="openAuth('signup')" class="gold-gradient text-black font-bold text-sm px-4 py-2 rounded-lg">Inizia gratis</button>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero-bg">
+  <div class="max-w-4xl mx-auto px-5 py-20 text-center">
+    <div class="inline-block text-xs font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded-full px-3 py-1 mb-6">Firma Elettronica Avanzata · eIDAS</div>
+    <h1 class="text-4xl sm:text-5xl font-bold leading-tight">Fai firmare contratti e liberatorie<br><span class="gold-text">in 3 minuti, dal telefono</span></h1>
+    <p class="text-lg text-zinc-400 mt-6 max-w-2xl mx-auto">K-Sign è lo strumento di firma digitale per la tua attività. Niente stampe, niente carta. Invii un link, il cliente firma dal telefono, tu ricevi tutto archiviato con pieno valore legale.</p>
+    <div class="flex flex-col sm:flex-row gap-3 justify-center mt-8">
+      <button onclick="openAuth('signup')" class="gold-gradient text-black font-bold px-7 py-4 rounded-xl text-lg">Prova gratis 14 giorni</button>
+      <button onclick="document.getElementById('come-funziona').scrollIntoView({behavior:'smooth'})" class="border border-zinc-700 text-zinc-200 font-semibold px-7 py-4 rounded-xl text-lg hover:bg-zinc-900">Come funziona</button>
+    </div>
+    <p class="text-xs text-zinc-500 mt-4">Nessuna carta di credito richiesta · 5 firme gratis al mese per sempre</p>
+  </div>
+</section>
+
+<!-- SETTORI -->
+<section class="border-y border-zinc-900 bg-zinc-950">
+  <div class="max-w-5xl mx-auto px-5 py-8">
+    <p class="text-center text-xs text-zinc-500 uppercase tracking-wider mb-4">Pensato per ogni attività</p>
+    <div class="flex flex-wrap justify-center gap-x-8 gap-y-2 text-zinc-400 text-sm font-medium">
+      <span>Palestre & Centri fitness</span><span>Centri estetici</span><span>Studi medici</span>
+      <span>Fotografi</span><span>Agenzie immobiliari</span><span>Autonoleggi</span><span>Professionisti</span>
+    </div>
+  </div>
+</section>
+
+<!-- COME FUNZIONA -->
+<section id="come-funziona" class="max-w-5xl mx-auto px-5 py-20">
+  <h2 class="text-3xl font-bold text-center">Come funziona</h2>
+  <p class="text-zinc-400 text-center mt-2">Tre passi, zero complicazioni</p>
+  <div class="grid md:grid-cols-3 gap-6 mt-12">
+    <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div class="w-12 h-12 gold-gradient text-black rounded-xl flex items-center justify-center font-bold text-xl mb-4">1</div>
+      <h3 class="font-bold text-lg">Carica i tuoi documenti</h3>
+      <p class="text-zinc-400 text-sm mt-2">Usa i modelli pronti o carica i tuoi contratti e liberatorie. Personalizza con il tuo logo e i tuoi colori.</p>
+    </div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div class="w-12 h-12 gold-gradient text-black rounded-xl flex items-center justify-center font-bold text-xl mb-4">2</div>
+      <h3 class="font-bold text-lg">Invia il link al cliente</h3>
+      <p class="text-zinc-400 text-sm mt-2">Via WhatsApp, email o SMS. Il cliente apre, legge e firma direttamente dal suo telefono. Nessuna app da installare.</p>
+    </div>
+    <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+      <div class="w-12 h-12 gold-gradient text-black rounded-xl flex items-center justify-center font-bold text-xl mb-4">3</div>
+      <h3 class="font-bold text-lg">Ricevi tutto archiviato</h3>
+      <p class="text-zinc-400 text-sm mt-2">PDF firmati con valore legale, audit log completo, conservazione sicura. Tu controlli tutto da una dashboard.</p>
+    </div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section class="bg-zinc-900/50 border-y border-zinc-900">
+  <div class="max-w-5xl mx-auto px-5 py-20">
+    <h2 class="text-3xl font-bold text-center">Prezzi semplici</h2>
+    <p class="text-zinc-400 text-center mt-2">Inizia gratis, paghi solo quando cresci</p>
+    <div class="grid md:grid-cols-3 gap-6 mt-12">
+      <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h3 class="font-bold text-lg">Free</h3>
+        <div class="text-3xl font-bold mt-2">0€<span class="text-sm text-zinc-500 font-normal">/mese</span></div>
+        <ul class="text-sm text-zinc-400 mt-4 space-y-2">
+          <li>✓ 5 firme al mese</li><li>✓ 1 utente</li><li>✓ Modelli pronti</li><li>✓ Archiviazione sicura</li>
+        </ul>
+        <button onclick="openAuth('signup')" class="w-full mt-6 border border-zinc-700 font-semibold py-2.5 rounded-lg hover:bg-zinc-800">Inizia gratis</button>
+      </div>
+      <div class="bg-zinc-900 border-2 border-amber-500 rounded-2xl p-6 relative">
+        <div class="absolute -top-3 left-1/2 -translate-x-1/2 gold-gradient text-black text-xs font-bold px-3 py-1 rounded-full">PIÙ SCELTO</div>
+        <h3 class="font-bold text-lg gold-text">Base</h3>
+        <div class="text-3xl font-bold mt-2">29€<span class="text-sm text-zinc-500 font-normal">/mese</span></div>
+        <ul class="text-sm text-zinc-400 mt-4 space-y-2">
+          <li>✓ Firme illimitate</li><li>✓ 3 utenti</li><li>✓ Branding personalizzato</li><li>✓ Modelli illimitati</li><li>✓ Invio WhatsApp/Email/SMS</li>
+        </ul>
+        <button onclick="openAuth('signup')" class="w-full mt-6 gold-gradient text-black font-bold py-2.5 rounded-lg">Prova 14 giorni</button>
+      </div>
+      <div class="bg-zinc-900 border border-zinc-800 rounded-2xl p-6">
+        <h3 class="font-bold text-lg">Pro</h3>
+        <div class="text-3xl font-bold mt-2">79€<span class="text-sm text-zinc-500 font-normal">/mese</span></div>
+        <ul class="text-sm text-zinc-400 mt-4 space-y-2">
+          <li>✓ Tutto Base</li><li>✓ Multi-sede</li><li>✓ API & integrazioni</li><li>✓ Reminder automatici</li><li>✓ Supporto prioritario</li>
+        </ul>
+        <button onclick="openAuth('signup')" class="w-full mt-6 border border-zinc-700 font-semibold py-2.5 rounded-lg hover:bg-zinc-800">Prova 14 giorni</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer class="max-w-6xl mx-auto px-5 py-10 text-center text-zinc-500 text-sm">
+  <div class="flex items-center justify-center gap-2 mb-3">
+    <div class="w-7 h-7 gold-gradient text-black rounded-md flex items-center justify-center font-bold">K</div>
+    <span class="font-bold text-white">K-Sign</span>
+  </div>
+  <p>Firma elettronica avanzata conforme eIDAS UE 910/2014 · GDPR compliant</p>
+  <p class="mt-1 text-zinc-600">© 2026 Kendo S.r.l.s. · Tutti i diritti riservati</p>
+</footer>
+
+<!-- ===== MODAL AUTH ===== -->
+<div id="auth-modal" class="modal fixed inset-0 bg-black/70 z-50 hidden items-center justify-center p-4">
+  <div class="bg-zinc-900 border border-zinc-800 rounded-2xl max-w-md w-full p-7 relative">
+    <button onclick="closeAuth()" class="absolute top-4 right-4 text-zinc-500 hover:text-white text-2xl">×</button>
+    <div class="flex items-center gap-2 mb-6">
+      <div class="w-9 h-9 gold-gradient text-black rounded-lg flex items-center justify-center font-bold text-lg">K</div>
+      <span class="font-bold text-lg">K-Sign</span>
+    </div>
+
+    <!-- SIGNUP -->
+    <div id="signup-form">
+      <h2 class="text-xl font-bold">Crea il tuo account</h2>
+      <p class="text-sm text-zinc-400 mt-1">Inizia gratis. Nessuna carta richiesta.</p>
+      <div class="space-y-3 mt-5">
+        <input id="su-azienda" type="text" placeholder="Nome della tua attività" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none">
+        <select id="su-settore" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none text-zinc-300">
+          <option value="">Settore...</option>
+          <option>Palestra / Centro fitness</option><option>Centro estetico</option><option>Studio medico</option>
+          <option>Fotografia</option><option>Agenzia immobiliare</option><option>Autonoleggio</option>
+          <option>Professionista</option><option>Altro</option>
+        </select>
+        <input id="su-email" type="email" placeholder="Email" autocomplete="email" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none">
+        <input id="su-password" type="password" placeholder="Password (min 8 caratteri)" autocomplete="new-password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none">
+      </div>
+      <button onclick="doSignup()" id="su-btn" class="w-full gold-gradient text-black font-bold py-3 rounded-lg mt-5">Crea account gratis</button>
+      <p class="text-center text-sm text-zinc-400 mt-4">Hai già un account? <button onclick="switchAuth('login')" class="text-amber-400 font-semibold">Accedi</button></p>
+    </div>
+
+    <!-- LOGIN -->
+    <div id="login-form" class="hidden">
+      <h2 class="text-xl font-bold">Accedi</h2>
+      <p class="text-sm text-zinc-400 mt-1">Bentornato in K-Sign</p>
+      <div class="space-y-3 mt-5">
+        <input id="li-email" type="email" placeholder="Email" autocomplete="email" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none">
+        <input id="li-password" type="password" placeholder="Password" autocomplete="current-password" class="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-3 text-sm focus:border-amber-500 focus:outline-none">
+      </div>
+      <button onclick="doLogin()" id="li-btn" class="w-full gold-gradient text-black font-bold py-3 rounded-lg mt-5">Accedi</button>
+      <p class="text-center text-sm text-zinc-400 mt-4">Non hai un account? <button onclick="switchAuth('signup')" class="text-amber-400 font-semibold">Registrati</button></p>
+    </div>
+
+    <div id="auth-msg" class="text-sm text-center mt-4 hidden"></div>
+  </div>
+</div>
+
+<!-- ===== WELCOME (post-login) ===== -->
+<div id="welcome-screen" class="fixed inset-0 bg-zinc-950 z-50 hidden items-center justify-center p-4">
+  <div class="text-center max-w-md">
+    <div class="w-20 h-20 gold-gradient text-black rounded-2xl flex items-center justify-center font-bold text-4xl mx-auto mb-6">K</div>
+    <h2 class="text-2xl font-bold" id="welcome-title">Benvenuto in K-Sign!</h2>
+    <p class="text-zinc-400 mt-3" id="welcome-msg">Il tuo account è pronto.</p>
+    <div id="welcome-org" class="bg-zinc-900 border border-zinc-800 rounded-xl p-4 mt-6 text-left text-sm hidden">
+      <div class="flex justify-between mb-2"><span class="text-zinc-500">Azienda:</span><span class="font-semibold" id="w-azienda">—</span></div>
+      <div class="flex justify-between mb-2"><span class="text-zinc-500">Piano:</span><span class="gold-text font-semibold">Free</span></div>
+      <div class="flex justify-between"><span class="text-zinc-500">ID spazio:</span><span class="font-mono text-xs" id="w-slug">—</span></div>
+    </div>
+    <p class="text-zinc-500 text-sm mt-6">La dashboard completa è in arrivo nel prossimo step. Per ora il tuo account e il tuo spazio aziendale sono creati e isolati sul cloud sicuro.</p>
+    <button onclick="doLogout()" class="mt-6 border border-zinc-700 text-zinc-300 font-semibold px-6 py-2.5 rounded-lg hover:bg-zinc-900">Esci</button>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://mbhhmizospdfnidpvqfe.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_dEk2B8P5F6whz92osBC2jg_RJF80Way';
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const $ = id => document.getElementById(id);
+function openAuth(mode) { $('auth-modal').classList.remove('hidden'); $('auth-modal').classList.add('flex'); switchAuth(mode); }
+function closeAuth() { $('auth-modal').classList.add('hidden'); $('auth-modal').classList.remove('flex'); }
+function switchAuth(mode) {
+  $('signup-form').classList.toggle('hidden', mode !== 'signup');
+  $('login-form').classList.toggle('hidden', mode !== 'login');
+  $('auth-msg').classList.add('hidden');
+}
+function msg(text, type) {
+  const m = $('auth-msg');
+  m.textContent = text;
+  m.className = 'text-sm text-center mt-4 ' + (type === 'err' ? 'text-red-400' : 'text-emerald-400');
+  m.classList.remove('hidden');
+}
+
+async function doSignup() {
+  const azienda = $('su-azienda').value.trim();
+  const settore = $('su-settore').value;
+  const email = $('su-email').value.trim();
+  const password = $('su-password').value;
+  if (azienda.length < 2) return msg('Inserisci il nome della tua attività', 'err');
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return msg('Email non valida', 'err');
+  if (password.length < 8) return msg('La password deve avere almeno 8 caratteri', 'err');
+
+  const btn = $('su-btn'); btn.disabled = true; btn.textContent = 'Creazione account...';
+  // 1. Signup
+  const { data: signupData, error: signupErr } = await sb.auth.signUp({ email, password });
+  if (signupErr) { btn.disabled = false; btn.textContent = 'Crea account gratis'; return msg('Errore: ' + signupErr.message, 'err'); }
+
+  // 2. Crea organizzazione (richiede sessione attiva)
+  // Se la conferma email è attiva, la sessione potrebbe non esserci ancora
+  if (signupData.session) {
+    const { data: orgId, error: orgErr } = await sb.rpc('crea_organizzazione', {
+      p_nome: azienda, p_settore: settore || null, p_email: email
+    });
+    btn.disabled = false; btn.textContent = 'Crea account gratis';
+    if (orgErr) return msg('Account creato ma errore org: ' + orgErr.message, 'err');
+    // Account creato + sessione attiva → vai direttamente in dashboard
+    localStorage.setItem('ksign_welcome_new', '1');
+    window.location.href = '/dashboard';
+  } else {
+    // Email di conferma richiesta
+    btn.disabled = false; btn.textContent = 'Crea account gratis';
+    // Salva i dati org per crearla al primo login (dopo conferma email)
+    localStorage.setItem('ksign_pending_org', JSON.stringify({ nome: azienda, settore }));
+    msg('✓ Account creato! Controlla la tua email per confermare, poi torna qui e fai accesso.', 'ok');
+    setTimeout(() => switchAuth('login'), 2500);
+  }
+}
+
+async function doLogin() {
+  const email = $('li-email').value.trim();
+  const password = $('li-password').value;
+  if (!email || !password) return msg('Inserisci email e password', 'err');
+  const btn = $('li-btn'); btn.disabled = true; btn.textContent = 'Accesso...';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    btn.disabled = false; btn.textContent = 'Accedi';
+    return msg('Errore: ' + error.message, 'err');
+  }
+  btn.textContent = 'Apertura dashboard...';
+  await afterLogin();
+}
+
+async function afterLogin() {
+  // Crea org pendente se esiste (caso: signup + conferma email + primo login)
+  const pending = JSON.parse(localStorage.getItem('ksign_pending_org') || 'null');
+  if (pending) {
+    const { data: membri } = await sb.from('membri').select('org_id').limit(1);
+    if (!membri || membri.length === 0) {
+      await sb.rpc('crea_organizzazione', { p_nome: pending.nome, p_settore: pending.settore || null });
+      localStorage.setItem('ksign_welcome_new', '1');
+    }
+    localStorage.removeItem('ksign_pending_org');
+  }
+  // Vai direttamente in dashboard — niente schermate intermedie
+  window.location.href = '/dashboard';
+}
+
+// Check sessione esistente all'avvio:
+// se l'utente è già loggato e atterra sulla landing, portalo subito in dashboard
+(async () => {
+  const { data: { session } } = await sb.auth.getSession();
+  if (session) {
+    // Non bloccare la landing per gli utenti non loggati: redirect solo se c'è davvero sessione
+    window.location.href = '/dashboard';
+  }
+})();
+</script>
+
+</body>
+</html>
+                               
