@@ -2318,6 +2318,7 @@ function Clienti({ navTarget }) {
             ))}
           </div>
         </div>
+        <ClienteAreaLogin cliente={c} />
         <div style={C()}>
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
             <div style={{fontWeight:500,fontSize:13}}>PACCHETTO</div>
@@ -2367,6 +2368,50 @@ function Clienti({ navTarget }) {
 }
 
 /* ─── LISTA CLIENTI: tabella desktop + card mobile + filtri rapidi ─── */
+function ClienteAreaLogin({ cliente }) {
+  const [sending, setSending] = useState(false);
+  const [msg, setMsg] = useState(null);
+
+  const inviaLink = async () => {
+    if (!cliente?.email) { setMsg({ tipo: "err", txt: "Il cliente non ha un'email registrata. Aggiungila prima." }); return; }
+    if (!window.confirm(`Inviare il link di accesso all'Area Cliente a ${cliente.email}?\n\nIl cliente riceverà una email con un link sicuro per accedere senza password.`)) return;
+    setSending(true);
+    setMsg(null);
+    try {
+      const r = await fetch("/api/cliente-magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cliente_id: cliente.id }),
+      });
+      const j = await r.json();
+      if (j.ok) setMsg({ tipo: "ok", txt: `✓ Link inviato a ${j.email}` });
+      else setMsg({ tipo: "err", txt: j.error || "Errore invio" });
+    } catch (e) {
+      setMsg({ tipo: "err", txt: "Errore di rete: " + e.message });
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div style={C()}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+        <div style={{ fontWeight: 500, fontSize: 13 }}>AREA CLIENTE</div>
+        {cliente.user_id && <span style={{ fontSize: 10, color: K.success, background: K.successBg, padding: "2px 8px", borderRadius: 10, fontWeight: 600 }}>✓ Account attivo</span>}
+      </div>
+      <div style={{ fontSize: 11, color: K.muted, marginBottom: 10, lineHeight: 1.5 }}>
+        Invia al cliente un link via email per accedere alla sua area personale: vede pacchetto, sedute residue, prenotazioni e BIA storica. Nessuna password richiesta.
+      </div>
+      <button onClick={inviaLink} disabled={sending || !cliente.email}
+        style={{ ...B(cliente.user_id ? "ghost" : "gold", { width: "100%", padding: "10px", fontSize: 13, opacity: (sending || !cliente.email) ? 0.5 : 1 }) }}>
+        {sending ? "Invio in corso..." : cliente.user_id ? "📧 Reinvia link accesso" : "📧 Invia link area cliente"}
+      </button>
+      {!cliente.email && <div style={{ fontSize: 11, color: K.danger, marginTop: 6 }}>⚠ Manca l'email del cliente</div>}
+      {msg && <div style={{ marginTop: 8, fontSize: 12, color: msg.tipo === "ok" ? K.success : K.danger }}>{msg.txt}</div>}
+    </div>
+  );
+}
+
 function ClientiList({ clienti, onSelect, onAdd, searchTerm, setSearchTerm }) {
   const isDesktop = useIsDesktop();
   const [sortKey, setSortKey] = useState("cognome");
