@@ -1464,14 +1464,30 @@ function DonutChart({ slices, size = 90 }) {
 
 /* ─── CHARTS DASHBOARD ADMIN ─── */
 function DashboardFinanze() {
-  const [data, setData] = useState({ topClienti: [], churnRecenti: [], totValore: 0, totDebito: 0, totSedute: 0, avgValore: 0 });
+  const [data, setData] = useState({
+    topClienti: [], churnRecenti: [], totValore: 0, totDebito: 0, totSedute: 0, avgValore: 0,
+    fattMese: 0, fattMeseScorso: 0, fattAnno: 0, trend12mesi: [],
+    topDebitori: [], topPacchetti: [], seduteMese: 0, noShowMese: 0,
+    occupazione: {}, prossimiCert: [],
+  });
   const [loading, setLoading] = useState(true);
   const [aperto, setAperto] = useState(false);
 
   useEffect(() => {
     if (!aperto || !loading) return;
     (async () => {
-      const { data: clienti } = await supabase.from("clienti").select("nome,cognome,valore_cliente,posizione_debitoria,status_crm,sedute_total,sedute_usate,data_inizio_pacchetto,updated_at");
+      const oggi = new Date();
+      const meseCorrente = oggi.toISOString().slice(0, 7);
+      const meseScorsoDate = new Date(oggi.getFullYear(), oggi.getMonth() - 1, 1);
+      const meseScorso = meseScorsoDate.toISOString().slice(0, 7);
+      const annoCorrente = oggi.getFullYear();
+
+      const [{ data: clienti }, { data: appsMese }, { data: appsTutti }] = await Promise.all([
+        supabase.from("clienti").select("nome,cognome,pacchetto,valore_cliente,posizione_debitoria,status_crm,sedute_total,sedute_usate,data_inizio_pacchetto,updated_at,scadenza_certificato_medico"),
+        supabase.from("appuntamento").select("stato,data,risorsa_id,ora_inizio,ora_fine").gte("data", `${meseCorrente}-01`),
+        supabase.from("appuntamento").select("stato,data,risorsa_id,ora_inizio,ora_fine").gte("data", `${annoCorrente - 1}-01-01`),
+      ]);
+
       const lista = clienti || [];
       const attivi = lista.filter(c => c.status_crm === "CLIENTE ATTIVO" || !c.status_crm);
       const totValore = lista.reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
@@ -1479,17 +1495,97 @@ function DashboardFinanze() {
       const totSedute = lista.reduce((s, c) => s + (c.sedute_usate || 0), 0);
       const valoriPositivi = lista.map(c => parseFloat(c.valore_cliente) || 0).filter(v => v > 0);
       const avgValore = valoriPositivi.length > 0 ? valoriPositivi.reduce((s, v) => s + v, 0) / valoriPositivi.length : 0;
+
       const topClienti = [...lista]
         .map(c => ({ ...c, valore: parseFloat(c.valore_cliente) || 0 }))
         .filter(c => c.valore > 0)
         .sort((a, b) => b.valore - a.valore)
         .slice(0, 5);
-      // Churn = clienti cancellati negli ultimi 90 giorni
+
+      // Churn ultimi 90 giorni
       const since = new Date(Date.now() - 90 * 86400000);
       const churnRecenti = lista
         .filter(c => c.status_crm === "CANCELLATO" && c.updated_at && new Date(c.updated_at) >= since)
         .slice(0, 5);
-      setData({ topClienti, churnRecenti, totValore, totDebito, totSedute, avgValore, totAttivi: attivi.length, totClienti: lista.length });
+
+      // FATTURATO: somma valore_cliente con data_inizio_pacchetto nel periodo
+      const fattMese = lista
+        .filter(c => c.data_inizio_pacchetto && c.data_inizio_pacchetto.startsWith(meseCorrente))
+        .reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
+      const fattMeseScorso = lista
+        .filter(c => c.data_inizio_pacchetto && c.data_inizio_pacchetto.startsWith(meseScorso))
+        .reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
+      const fattAnno = lista
+        .filter(c => c.data_inizio_pacchetto && c.data_inizio_pacchetto.startsWith(String(annoCorrente)))
+        .reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
+
+      // Trend 12 mesi (fatturato per mese)
+      const trend12mesi = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(oggi.getFullYear(), oggi.getMonth() - i, 1);
+        const ym = d.toISOString().slice(0, 7);
+        const val = lista
+          .filter(c => c.data_inizio_pacchetto && c.data_inizio_pacchetto.startsWith(ym))
+          .reduce((s, c) => s + (parseFloat(c.valore_cliente) || 0), 0);
+        trend12mesi.push({ label: d.toLocaleDateString("it-IT", { month: "short" }), value: Math.round(val) });
+      }
+
+      // Top 10 debitori
+      const topDebitori = [...lista]
+        .map(c => ({ ...c, debito: parseFloat(c.posizione_debitoria) || 0 }))
+        .filter(c => c.debito > 0)
+        .sort((a, b) => b.debito - a.debito)
+        .slice(0, 10);
+
+      // Pacchetti più venduti (in questo anno)
+      const packMap = {};
+      lista.forEach(c => {
+        if (c.data_inizio_pacchetto && c.data_inizio_pacchetto.startsWith(String(annoCorrente)) && c.pacchetto) {
+          packMap[c.pacchetto] = (packMap[c.pacchetto] || 0) + 1;
+        }
+      });
+      const topPacchetti = Object.entries(packMap)
+        .map(([nome, count]) => ({ nome, count }))
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 5);
+
+      // Sedute del mese: dalla nuova tabella appuntamento
+      const appsM = appsMese || [];
+      const seduteMese = appsM.filter(a => a.stato === "completato").length;
+      const noShowMese = appsM.filter(a => a.stato === "no_show").length;
+
+      // Occupazione % per risorsa ultimi 30 giorni
+      const occupazione = {};
+      const apps30 = (appsTutti || []).filter(a => {
+        const d = new Date(a.data);
+        return d >= new Date(Date.now() - 30 * 86400000) && d <= oggi && a.stato !== "cancellato";
+      });
+      const minutiPerRisorsa = {};
+      apps30.forEach(a => {
+        const dur = (toMinDash(a.ora_fine) - toMinDash(a.ora_inizio));
+        minutiPerRisorsa[a.risorsa_id] = (minutiPerRisorsa[a.risorsa_id] || 0) + dur;
+      });
+      // Per ogni risorsa la disponibilità potenziale è ~ 15h*30gg = 450h = 27000 min (stima)
+      // Calcolo semplificato: % = (minuti occupati / (30 giorni * 15 ore * 60)) * 100
+      const totMin30gg = 30 * 15 * 60;
+      Object.entries(minutiPerRisorsa).forEach(([rid, min]) => {
+        occupazione[rid] = Math.round((min / totMin30gg) * 100);
+      });
+
+      // Certificati medici in scadenza ≤30 gg
+      const prossimiCert = lista
+        .filter(c => c.scadenza_certificato_medico)
+        .map(c => ({ ...c, giorni: Math.floor((new Date(c.scadenza_certificato_medico) - oggi) / 86400000) }))
+        .filter(c => c.giorni >= 0 && c.giorni <= 30)
+        .sort((a, b) => a.giorni - b.giorni)
+        .slice(0, 5);
+
+      setData({
+        topClienti, churnRecenti, totValore, totDebito, totSedute, avgValore,
+        totAttivi: attivi.length, totClienti: lista.length,
+        fattMese, fattMeseScorso, fattAnno, trend12mesi,
+        topDebitori, topPacchetti, seduteMese, noShowMese, occupazione, prossimiCert,
+      });
       setLoading(false);
     })();
   }, [aperto, loading]);
@@ -1510,6 +1606,39 @@ function DashboardFinanze() {
         <div style={{marginTop:10}}>
           {loading ? <div style={C({textAlign:"center",padding:"1rem",color:K.muted,fontSize:11})}>Caricamento…</div> : (
             <>
+              {/* FATTURATO MESE — KPI principale */}
+              <div style={C({background:`linear-gradient(135deg, ${K.goldBg}, #1a1308)`, border:`1px solid ${K.gold}`, marginBottom:10})}>
+                <div style={{fontSize:10,color:K.muted,marginBottom:6,letterSpacing:1.5}}>📊 FATTURATO {new Date().toLocaleDateString("it-IT",{month:"long"}).toUpperCase()}</div>
+                <div style={{display:"flex",alignItems:"baseline",gap:12,flexWrap:"wrap"}}>
+                  <div style={{fontSize:32,fontWeight:700,color:K.gold,lineHeight:1}}>€{Math.round(data.fattMese).toLocaleString("it-IT")}</div>
+                  {data.fattMeseScorso > 0 && (() => {
+                    const delta = data.fattMese - data.fattMeseScorso;
+                    const perc = ((delta / data.fattMeseScorso) * 100).toFixed(0);
+                    const positivo = delta >= 0;
+                    return (
+                      <div style={{fontSize:13, fontWeight:600, color: positivo ? K.success : K.danger, background: positivo ? K.successBg : K.dangerBg, padding:"4px 10px", borderRadius:6}}>
+                        {positivo ? "▲" : "▼"} {Math.abs(perc)}%
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div style={{fontSize:11,color:K.muted,marginTop:6}}>
+                  Mese scorso: €{Math.round(data.fattMeseScorso).toLocaleString("it-IT")} · Da inizio anno: <strong style={{color:K.gold}}>€{Math.round(data.fattAnno).toLocaleString("it-IT")}</strong>
+                </div>
+              </div>
+
+              {/* Trend 12 mesi */}
+              <div style={C()}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:12,color:K.mutedLight,fontWeight:500}}>Fatturato ultimi 12 mesi</div>
+                  <div style={{fontSize:11,color:K.muted}}>media €{Math.round(data.trend12mesi.reduce((s,m)=>s+m.value,0)/12).toLocaleString("it-IT")}/mese</div>
+                </div>
+                <MiniBars data={data.trend12mesi} color={K.gold} height={60}/>
+                <div style={{display:"flex",justifyContent:"space-between",fontSize:9,color:K.muted,marginTop:4}}>
+                  {data.trend12mesi.filter((_,i)=>i%2===0).map((m,i)=>(<span key={i}>{m.label}</span>))}
+                </div>
+              </div>
+
               {/* KPI grandi */}
               <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:10}}>
                 <div style={C({marginBottom:0})}>
@@ -1521,6 +1650,25 @@ function DashboardFinanze() {
                   <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>LIFETIME VALUE MEDIO</div>
                   <div style={{fontSize:22,fontWeight:600,color:K.success}}>€{Math.round(data.avgValore).toLocaleString("it-IT")}</div>
                   <div style={{fontSize:10,color:K.muted,marginTop:2}}>per cliente con valore</div>
+                </div>
+              </div>
+
+              {/* Sedute mese + Occupazione */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:10}}>
+                <div style={C({marginBottom:0})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>SEDUTE COMPLETATE</div>
+                  <div style={{fontSize:18,fontWeight:600,color:K.success}}>{data.seduteMese}</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>questo mese</div>
+                </div>
+                <div style={C({marginBottom:0, border: data.noShowMese > 5 ? `1px solid ${K.dangerBorder}` : `1px solid ${K.border}`})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>NO-SHOW</div>
+                  <div style={{fontSize:18,fontWeight:600,color: data.noShowMese > 5 ? K.danger : K.mutedLight}}>{data.noShowMese}</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>questo mese</div>
+                </div>
+                <div style={C({marginBottom:0})}>
+                  <div style={{fontSize:9,color:K.muted,marginBottom:4,letterSpacing:1}}>ATTIVI</div>
+                  <div style={{fontSize:18,fontWeight:600,color:K.gold}}>{data.totAttivi}</div>
+                  <div style={{fontSize:10,color:K.muted,marginTop:2}}>di {data.totClienti}</div>
                 </div>
               </div>
 
@@ -1557,6 +1705,68 @@ function DashboardFinanze() {
                 </div>
               )}
 
+              {/* Pacchetti più venduti */}
+              {data.topPacchetti.length > 0 && (
+                <div style={C()}>
+                  <div style={{fontSize:11,color:K.muted,letterSpacing:1,marginBottom:10}}>📦 PACCHETTI PIÙ VENDUTI {new Date().getFullYear()}</div>
+                  {data.topPacchetti.map((p, i) => {
+                    const maxC = data.topPacchetti[0].count;
+                    const widthPct = (p.count / maxC) * 100;
+                    return (
+                      <div key={i} style={{marginBottom: i < data.topPacchetti.length - 1 ? 10 : 0}}>
+                        <div style={{display:"flex", justifyContent:"space-between", fontSize:12, marginBottom:4}}>
+                          <span style={{color:K.white, fontWeight:500}}>{p.nome}</span>
+                          <span style={{color:K.gold, fontWeight:600}}>{p.count} vendite</span>
+                        </div>
+                        <div style={{height:5, background:"#1a1a1a", borderRadius:3, overflow:"hidden"}}>
+                          <div style={{height:"100%", width:`${widthPct}%`, background:`linear-gradient(90deg, ${K.gold}, #fbbf24)`, borderRadius:3}}/>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Top debitori */}
+              {data.topDebitori.length > 0 && (
+                <div style={C({border:`1px solid ${K.dangerBorder}55`, background:K.dangerBg + "33"})}>
+                  <div style={{display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10}}>
+                    <div style={{fontSize:11, color:K.danger, letterSpacing:1, fontWeight:600}}>💸 TOP DEBITORI</div>
+                    <div style={{fontSize:11, color:K.danger, fontWeight:600}}>Totale: €{Math.round(data.totDebito).toLocaleString("it-IT")}</div>
+                  </div>
+                  {data.topDebitori.slice(0,5).map((c, i) => (
+                    <div key={i} style={{display:"flex", alignItems:"center", gap:10, padding:"7px 0", borderBottom: i < Math.min(data.topDebitori.length-1, 4) ? `1px solid ${K.dangerBorder}55` : "none"}}>
+                      <div style={{flex:1, minWidth:0}}>
+                        <div style={{fontSize:13, color:K.white, fontWeight:500, overflow:"hidden", textOverflow:"ellipsis"}}>{c.nome} {c.cognome}</div>
+                        <div style={{fontSize:10, color:K.muted}}>{c.pacchetto || "—"}</div>
+                      </div>
+                      <div style={{fontSize:14, fontWeight:600, color:K.danger}}>€{c.debito.toFixed(0)}</div>
+                    </div>
+                  ))}
+                  {data.topDebitori.length > 5 && (
+                    <div style={{fontSize:10, color:K.muted, textAlign:"center", marginTop:8}}>+{data.topDebitori.length - 5} altri debitori</div>
+                  )}
+                </div>
+              )}
+
+              {/* Certificati in scadenza */}
+              {data.prossimiCert.length > 0 && (
+                <div style={C({border:`1px solid #f59e0b55`, background:"#7c2d1222"})}>
+                  <div style={{fontSize:11, color:"#fbbf24", letterSpacing:1, marginBottom:10, fontWeight:600}}>⚕ CERTIFICATI MEDICI IN SCADENZA</div>
+                  {data.prossimiCert.map((c, i) => (
+                    <div key={i} style={{display:"flex", alignItems:"center", gap:10, padding:"6px 0", borderBottom: i < data.prossimiCert.length - 1 ? `1px solid #f59e0b33` : "none"}}>
+                      <div style={{flex:1, minWidth:0}}>
+                        <div style={{fontSize:13, color:K.white, fontWeight:500}}>{c.nome} {c.cognome}</div>
+                        <div style={{fontSize:10, color:K.muted}}>scade il {new Date(c.scadenza_certificato_medico).toLocaleDateString("it-IT")}</div>
+                      </div>
+                      <div style={{fontSize:12, fontWeight:600, color: c.giorni <= 7 ? K.danger : "#fbbf24"}}>
+                        {c.giorni === 0 ? "OGGI" : `${c.giorni}gg`}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               {/* Churn recenti */}
               {data.churnRecenti.length>0 && (
                 <div style={C({border:`1px solid ${K.dangerBorder}`,background:K.dangerBg})}>
@@ -1579,6 +1789,9 @@ function DashboardFinanze() {
     </div>
   );
 }
+
+// helper minuti per dashboard finanziaria
+function toMinDash(hms) { const [h, m] = (hms || "00:00").split(":").map(Number); return h * 60 + m; }
 
 function DashboardCharts() {
   const [data, setData] = useState({ leadGiornalieri: [], fontiLead: [], conversioniMese: [], statoLead: [] });
